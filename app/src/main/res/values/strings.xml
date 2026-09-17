@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Chief of Staff</string>
+    <string name="widget_description">Никодим — быстрый голосовой ввод задач</string>
+    <string name="shortcut_voice">Диктовать задачу</string>
+    <string name="shortcut_voice_long">Открыть Никодима и сразу начать диктовку</string>
+</resources>

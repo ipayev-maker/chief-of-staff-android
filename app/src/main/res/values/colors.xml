@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cos_bg">#F5F7FB</color>
+    <color name="cos_card">#FFFFFF</color>
+    <color name="cos_text">#172033</color>
+    <color name="cos_muted">#667085</color>
+    <color name="cos_blue">#3568E8</color>
+    <color name="cos_blue_dark">#2453C4</color>
+    <color name="cos_green">#218A63</color>
+    <color name="cos_line">#D7DEE8</color>
+    <color name="white">#FFFFFF</color>
+</resources>
