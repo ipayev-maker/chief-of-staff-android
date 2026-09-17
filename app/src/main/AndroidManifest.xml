@@ -19,6 +19,14 @@
         android:theme="@style/Theme.ChiefOfStaff">
 
         <activity
+            android:name=".QuickCaptureActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:noHistory="false"
+            android:theme="@style/Theme.ChiefOfStaff.QuickCapture" />
+
+        <activity
             android:name=".CaptureActivity"
             android:exported="true"
             android:launchMode="singleTop"
