@@ -1,0 +1,1 @@
+Voice capture silence timeout: 5 seconds. This branch will contain alpha 0.2 changes.
