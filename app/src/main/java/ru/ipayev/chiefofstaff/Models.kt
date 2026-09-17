@@ -6,6 +6,12 @@ data class Project(
     val areaKey: String? = null
 )
 
+data class RelationProposal(
+    val targetTaskId: String?,
+    val targetTaskDescription: String?,
+    val linkType: String
+)
+
 data class Draft(
     var description: String,
     val direction: String,
@@ -16,6 +22,7 @@ data class Draft(
     val plannedOn: String?,
     val nextCheckOn: String?,
     val deadlineText: String?,
+    val relations: List<RelationProposal> = emptyList(),
     val warnings: List<String> = emptyList()
 )
 
