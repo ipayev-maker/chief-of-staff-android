@@ -10,9 +10,8 @@ import android.widget.RemoteViews
 class NikodimWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         appWidgetIds.forEach { appWidgetId ->
-            val intent = Intent(context, CaptureActivity::class.java).apply {
+            val intent = Intent(context, QuickCaptureActivity::class.java).apply {
                 action = ACTION_WIDGET_CAPTURE
-                putExtra(CaptureActivity.EXTRA_AUTOSTART, true)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             val pendingIntent = PendingIntent.getActivity(
