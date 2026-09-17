@@ -1,5 +1,7 @@
 package ru.ipayev.chiefofstaff
 
+data class Participant(val id: String, val name: String)
+
 data class Project(
     val id: String,
     val title: String,
