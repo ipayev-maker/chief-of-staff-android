@@ -20,9 +20,6 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Apply alpha 0.2 voice/widget patch
-        run: python ci/apply_alpha_02.py
-
       - name: Show Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
@@ -33,6 +30,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chief-of-staff-android-debug
+          name: chief-of-staff-android-alpha-0.3
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
