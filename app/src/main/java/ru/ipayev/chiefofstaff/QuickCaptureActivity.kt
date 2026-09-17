@@ -40,6 +40,8 @@ class QuickCaptureActivity : Activity() {
     private var currentPartial = ""
     private val finalSegments = mutableListOf<String>()
     private var projects: List<Project> = emptyList()
+    private var participants: List<Participant> = emptyList()
+    private var openTasks: List<TaskSummary> = emptyList()
     private val draftRows = mutableListOf<QuickDraftRow>()
     private var sourceText = ""
 
@@ -60,7 +62,7 @@ class QuickCaptureActivity : Activity() {
         configureWindow()
         setContentView(buildUi())
         setFinishOnTouchOutside(false)
-        loadProjectsInBackground()
+        loadContextInBackground()
         ensurePermissionAndStart()
     }
 
@@ -416,7 +418,7 @@ class QuickCaptureActivity : Activity() {
 
         io.execute {
             if (projects.isEmpty()) runCatching { ApiClient.loadProjects() }.onSuccess { projects = it }
-            runCatching { ApiClient.parseVoice(text) }
+            runCatching { ApiClient.parseVoice(text, buildCaptureContext()) }
                 .onSuccess { result -> runOnUiThread { showReview(result) } }
                 .onFailure { error -> runOnUiThread { showParseError(error.message ?: "Ошибка") } }
         }
@@ -469,6 +471,11 @@ class QuickCaptureActivity : Activity() {
         draft.projectTitle?.takeIf { it.isNotBlank() }?.let { meta += it }
         draft.deadline?.takeIf { it.isNotBlank() }?.let { meta += "срок $it" }
         draft.deadlineText?.takeIf { it.isNotBlank() && it != draft.deadline }?.let { meta += it }
+        draft.who?.takeIf { it.isNotBlank() }?.let { meta += "участник: $it" }
+        draft.relations.forEach { rel ->
+            val target = rel.targetTaskId?.let { id -> openTasks.firstOrNull { it.id == id } } ?: rel.targetTaskDescription?.let { matchTask(it) }
+            if (target != null) meta += "связь: ${rel.linkType} → ${target.description.take(50)}"
+        }
         if (meta.isNotEmpty()) {
             box.addView(label(meta.joinToString(" · "), 12f, muted = true).apply { setPadding(dp(34), 0, 0, 0) })
         }
@@ -489,9 +496,16 @@ class QuickCaptureActivity : Activity() {
         io.execute {
             runCatching {
                 if (projects.isEmpty()) projects = ApiClient.loadProjects()
+                if (participants.isEmpty()) participants = ApiClient.loadParticipants()
                 selected.forEach { row ->
                     val projectId = matchProject(row.draft.projectTitle)?.id
-                    ApiClient.createCommitment(row.draft, projectId, sourceText)
+                    val participantId = matchParticipant(row.draft.who)?.id
+                    val newId = ApiClient.createCommitment(row.draft, projectId, participantId, sourceText)
+                    row.draft.relations.forEach { rel ->
+                        val target = rel.targetTaskId?.let { id -> openTasks.firstOrNull { it.id == id } }
+                            ?: rel.targetTaskDescription?.let { desc -> matchTask(desc) }
+                        if (target != null) ApiClient.createLink(projectId, newId, target.id, rel.linkType)
+                    }
                 }
             }.onSuccess {
                 runOnUiThread {
@@ -519,6 +533,27 @@ class QuickCaptureActivity : Activity() {
         }
     }
 
+    private fun matchParticipant(name: String?): Participant? {
+        val needle = normalize(name ?: return null)
+        if (needle.isBlank()) return null
+        return participants.firstOrNull { normalize(it.name) == needle }
+            ?: participants.firstOrNull { normalize(it.name).contains(needle) || needle.contains(normalize(it.name)) }
+    }
+
+    private fun matchTask(description: String?): TaskSummary? {
+        val needle = normalize(description ?: return null)
+        if (needle.isBlank()) return null
+        return openTasks.firstOrNull { normalize(it.description) == needle }
+            ?: openTasks.maxByOrNull { overlapScore(needle, normalize(it.description)) }?.takeIf { overlapScore(needle, normalize(it.description)) >= 0.35 }
+    }
+
+    private fun overlapScore(a: String, b: String): Double {
+        val aa=a.split(" ").filter { it.length>2 }.toSet()
+        val bb=b.split(" ").filter { it.length>2 }.toSet()
+        if (aa.isEmpty()) return 0.0
+        return aa.intersect(bb).size.toDouble()/aa.size
+    }
+
     private fun matchProject(title: String?): Project? {
         val needle = normalize(title ?: return null)
         if (needle.isBlank()) return null
@@ -526,8 +561,23 @@ class QuickCaptureActivity : Activity() {
             ?: projects.firstOrNull { normalize(it.title).contains(needle) || needle.contains(normalize(it.title)) }
     }
 
-    private fun loadProjectsInBackground() {
-        io.execute { runCatching { ApiClient.loadProjects() }.onSuccess { projects = it } }
+    private fun loadContextInBackground() {
+        io.execute {
+            runCatching { ApiClient.loadProjects() }.onSuccess { projects = it }
+            runCatching { ApiClient.loadParticipants() }.onSuccess { participants = it }
+            runCatching { ApiClient.loadOpenTasks() }.onSuccess { openTasks = it }
+        }
+    }
+
+    private fun buildCaptureContext(): org.json.JSONObject {
+        val root = org.json.JSONObject()
+        val ps = org.json.JSONArray()
+        projects.forEach { ps.put(org.json.JSONObject().put("id", it.id).put("title", it.title).put("area_key", it.areaKey ?: org.json.JSONObject.NULL)) }
+        val people = org.json.JSONArray()
+        participants.forEach { people.put(org.json.JSONObject().put("id", it.id).put("name", it.name)) }
+        val tasks = org.json.JSONArray()
+        openTasks.forEach { tasks.put(org.json.JSONObject().put("id", it.id).put("description", it.description).put("project_id", it.projectId ?: org.json.JSONObject.NULL)) }
+        return root.put("projects", ps).put("participants", people).put("tasks", tasks)
     }
 
     private fun showNoSpeech() {
