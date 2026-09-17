@@ -1,0 +1,1 @@
+Widget capture behavior notes for alpha 0.2.
