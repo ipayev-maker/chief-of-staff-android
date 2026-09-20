@@ -1,0 +1,8 @@
+{
+  "name": "chief-of-staff-web",
+  "private": true,
+  "version": "3.3.0",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}
