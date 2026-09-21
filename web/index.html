@@ -500,7 +500,7 @@ async function createNote(){try{await flushNote();const r=await api(R('project_n
 async function saveNote(){if(!S.note)return;try{await persistNote({quiet:false});notesPage()}catch{}}
 async function togglePinNote(){const note=S.note;if(!note||note.archived_at||noteBusy.has(note.id))return;try{await flushNote();const pinned=!note.pinned,row=confirmedRow(await enqueueNote(note,()=>api(R('project_notes',`id=eq.${note.id}`),{method:'PATCH',body:{pinned},prefer:'return=representation'})),note.id,'Закрепление');if(row.pinned!==pinned)throw Error('Сервер не подтвердил закрепление');syncNoteInputs();note.pinned=row.pinned;notesPage()}catch(e){toast('Не удалось изменить закрепление: '+e.message,'error')}}
 async function deleteNote(){
-  const note=S.note;if(!note||note.archived_at||noteBusy.has(note.id)||!confirm(`Переместить заметку «${note.title}» в архив?`))return;
+  const note=S.note;if(!note||note.archived_at||noteBusy.has(note.id))return;
   syncNoteInputs();setNoteBusy(note,true);
   try{await persistNote({quiet:true,note});const row=confirmedRow(await enqueueNote(note,()=>api(R('project_notes',`id=eq.${note.id}`),{method:'PATCH',body:{archived_at:new Date().toISOString(),pinned:false},prefer:'return=representation'})),note.id,'Архивирование');if(!row.archived_at)throw Error('Сервер не подтвердил архивирование');Object.assign(note,row);if(S.note?.id===note.id)S.note=S.notes.find(n=>!n.archived_at)||null;notesPage();toast('Заметка перемещена в архив')}
   catch(e){toast('Не удалось архивировать заметку: '+e.message,'error')}
