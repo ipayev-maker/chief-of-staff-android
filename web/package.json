@@ -1,8 +1,9 @@
 {
   "name": "chief-of-staff-web",
+  "version": "3.3.1",
   "private": true,
-  "version": "3.3.0",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.cjs"
   }
 }

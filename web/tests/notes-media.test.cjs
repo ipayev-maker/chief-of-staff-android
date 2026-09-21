@@ -1,0 +1,37 @@
+const fs=require('node:fs');const vm=require('node:vm');const assert=require('node:assert/strict');
+const html=fs.readFileSync(process.argv[2]||require('node:path').join(__dirname,'../index.html'),'utf8');
+const script=html.match(/<script>([\s\S]*)<\/script>/)[1].replace(/\nboot\(\);/,'');
+const tick=()=>new Promise(r=>setImmediate(r));
+function harness(){
+ const els=new Map(),messages=[];const make=()=>({value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},appendChild(){},remove(){}});
+ const doc={querySelector(q){if(!els.has(q))els.set(q,make());return els.get(q)},querySelectorAll(){return[]},createElement(){return make()},body:make()};
+ const ctx=vm.createContext({document:doc,window:{},location:{origin:'https://chief-of-staff-v3-live.vercel.app'},URL,Blob,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,setInterval(){},confirm:()=>true,console});
+ vm.runInContext(script+'\n;globalThis.T={S,noteState,syncNoteInputs,persistNote,flushNote,deleteNote,restoreNote,fullSignedUrl,assetMime,assetPreview,signAsset,uploadNoteFiles,notesPage,MEDIA_MIMES};',ctx);
+ ctx.notify=(msg,type)=>messages.push({msg,type});vm.runInContext('toast=notify;notesPage=()=>{}',ctx);
+ const note={id:'note-1',project_id:'project-1',title:'Title',plain_text:'saved',pinned:false,archived_at:null};ctx.T.S.tab='notes';ctx.T.S.note=note;ctx.T.S.notes=[note];ctx.T.S.project={id:'project-1'};
+ doc.querySelector('#noteTitle').value='Title';doc.querySelector('#noteBody').value='saved';
+ return{ctx,T:ctx.T,note,els,messages,api(fn){ctx.mockApi=fn;vm.runInContext('api=mockApi',ctx)},net(fn){ctx.mockNet=fn;vm.runInContext('netFetch=mockNet',ctx)}};
+}
+(async()=>{
+ let h=harness(),calls=[],resolveFirst;
+ h.api(async(path,opt)=>{calls.push(opt.body);if(calls.length===1)return await new Promise(r=>resolveFirst=r);return[{...h.note,...opt.body}]});
+ h.els.get('#noteBody').value='first draft';const first=h.T.persistNote({quiet:true});await tick();
+ h.els.get('#noteBody').value='newer draft';h.T.syncNoteInputs();const flush=h.T.flushNote();await tick();assert.equal(calls.length,1,'serialized writes');
+ resolveFirst([{...h.note,plain_text:'first draft',content_json:calls[0].content_json}]);await first;assert.equal(h.note.plain_text,'newer draft','old response cannot clobber newer edit');await flush;
+ assert.equal(calls.length,2);assert.equal(calls[1].plain_text,'newer draft');assert.equal(h.T.noteState(h.note).savedRevision,h.T.noteState(h.note).revision);
+ console.log('PASS: queued autosave; stale response preserves newer draft; flush writes newest text');
+ h=harness();calls=[];h.api(async(p,o)=>{calls.push(o.body);return[{...h.note,...o.body}]});h.els.get('#noteBody').value='unsaved draft';await h.T.deleteNote();assert.equal(calls[0].plain_text,'unsaved draft');assert.ok(calls[1].archived_at);assert.ok(h.note.archived_at);assert.equal(h.note.plain_text,'unsaved draft');assert.ok(h.messages.some(x=>x.msg==='Заметка перемещена в архив'));
+ console.log('PASS: archive saves draft before archiving and confirms server row');
+ h=harness();h.api(async()=>[]);await h.T.deleteNote();assert.equal(h.note.archived_at,null);assert.ok(h.messages.every(x=>x.type==='error'));h.note.archived_at='2026-01-01T00:00:00Z';await h.T.restoreNote();assert.equal(h.note.archived_at,'2026-01-01T00:00:00Z');h.note.archived_at=null;h.els.get('#noteBody').value='save me';await assert.rejects(h.T.persistNote({quiet:true}));assert.equal(h.note.plain_text,'save me');assert.ok(h.T.noteState(h.note).revision>h.T.noteState(h.note).savedRevision);
+ console.log('PASS: empty mutation response never claims save/archive/restore success');
+ h=harness();for(const raw of ['/object/sign/project-media/file?token=test','/storage/v1/object/sign/project-media/file?token=test','https://spabmyyxiufuzsaydrmx.supabase.co/storage/v1/object/sign/project-media/file?token=test'])assert.equal(h.T.fullSignedUrl(raw),'/storage/v1/object/sign/project-media/file?token=test');assert.throws(()=>h.T.fullSignedUrl('https://unknown.example/file'));
+ assert.equal(h.T.assetMime({name:'image.PNG',type:''}),'image/png');assert.equal(h.T.assetMime({type:'audio/webm;codecs=opus'}),'audio/webm');assert.equal(h.T.assetMime({type:'audio/x-wav'}),'audio/wav');assert.ok(h.T.assetPreview({id:'a',original_name:'picture.png',url:'/storage/v1/object/sign/b/p?token=t'}).includes('<img'));assert.ok(h.T.assetPreview({id:'a',error:'Missing object'}).includes('data-retry-asset'));
+ console.log('PASS: signed URLs are same-origin; MIME inference/aliases; explicit preview retry');
+ let paths=[];h.net(async(p)=>{paths.push(p);return{ok:true,json:async()=>({signedURL:'/object/sign/other-bucket/file?token=test'})}});const a={storage_bucket:'other-bucket',storage_path:'folder/a b.png'};await h.T.signAsset(a);assert.equal(paths[0],'/storage/v1/object/sign/other-bucket/folder/a%20b.png');assert.ok(a.url.startsWith('/storage/v1/'));await h.T.signAsset(a);assert.equal(paths.length,1,'fresh signed URL reused');h.net(async()=>({ok:false,json:async()=>({message:'Object missing'})}));await h.T.signAsset(a,{force:true});assert.equal(a.url,'');assert.equal(a.error,'Object missing');
+ console.log('PASS: actual bucket/path respected; cached signature reused; signing failure visible');
+ h=harness();calls=[];h.net(async(p,o)=>{calls.push({path:p,headers:o.headers});return p.includes('/object/sign/')?{ok:true,json:async()=>({signedURL:'/object/sign/project-media/image.png?token=test'})}:{ok:true}});h.api(async(p,o)=>{calls.push({path:p,body:o.body});return[{id:'asset-1',...o.body}]});await h.T.uploadNoteFiles([{name:'image.PNG',type:'',size:5}]);assert.equal(h.T.S.assets.length,1);assert.equal(h.T.S.assets[0].mime_type,'image/png');assert.equal(calls[0].headers['Content-Type'],'image/png');assert.equal(calls[1].body.note_id,h.note.id);const count=calls.length;await h.T.uploadNoteFiles([{name:'file.html',type:'text/html',size:5}]);assert.equal(calls.length,count);
+ console.log('PASS: note upload implemented; inferred MIME stored and sent; unsupported types rejected');
+ h=harness();vm.runInContext('notesPage=T.notesPage',h.ctx);h.T.notesPage();assert.equal(typeof h.els.get('#notePin').onclick,'function');assert.equal(typeof h.els.get('#noteDelete').onclick,'function');assert.equal(typeof h.els.get('#mediaInput').onchange,'function');assert.equal(typeof h.els.get('#noteBody').oninput,'function');
+ console.log('PASS: notes rendering binds pin/archive/media/autosave without ReferenceError');
+ console.log('7 notes/media regression groups passed');
+})().catch(e=>{console.error(e);process.exitCode=1});
