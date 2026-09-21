@@ -1,0 +1,33 @@
+name: Google Calendar contract tests
+
+on:
+  pull_request:
+    paths:
+      - 'web/calendar/**'
+      - 'web/tests/google-calendar.test.cjs'
+      - '.github/workflows/google-calendar.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/calendar/**'
+      - 'web/tests/google-calendar.test.cjs'
+      - '.github/workflows/google-calendar.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Test calendar projection and change planning
+        working-directory: web
+        run: node --test tests/google-calendar.test.cjs
