@@ -35,6 +35,22 @@ node --test tests/google-calendar.test.cjs
 
 Contract: pass canonical PostgREST date strings and timestamp strings with an explicit offset, and the target calendar's validated IANA timezone. A timestamp has priority over a date; a disagreement produces a warning. Timezone must come from the calendar/connection configuration, never the server default.
 
+## Google Cloud registration contract
+
+Use a Web application OAuth client for a server-side authorization-code flow.
+
+- Authorized JavaScript origins: leave empty. The initial integration redirects through the server and does not use a browser Google OAuth SDK.
+- Authorized redirect URI: `https://chief-of-staff-v3-live.vercel.app/api/google-calendar/callback`
+- No trailing slash, preview deployment URLs or localhost entries on the production client.
+- Intended scopes: `openid email https://www.googleapis.com/auth/calendar.app.created`.
+- Request offline access. Verify granted scopes, Google identity and the configured owner before saving tokens or creating a calendar.
+- Keep the allowed owner identity and client secret in server configuration, not in this public repository.
+- Save the created calendar's ID durably; the narrow app-created scope does not permit discovering all user calendars through CalendarList.
+
+This fixes the URI contract for Google Cloud setup; the callback handler is **not implemented or deployed by this draft**. The future server handler and token exchange must use this exact URI. Creating the OAuth client does not activate synchronization. Store the downloaded client credentials privately and provision the secret directly into server secrets.
+
+For a personal Google account, use External audience and add the owner as a test user during initial setup. Before enabling ongoing synchronization, resolve the Testing-mode seven-day refresh-token expiration by configuring the appropriate publishing status and reconnecting. Review Google's personal-use verification exception separately from publishing status.
+
 ## Required before activation
 
 1. Authenticate the application owner. The current anonymous API access is not proof of the calendar owner's identity. The OAuth start, callback, disconnect and status endpoints need owner authorization; the callback also needs single-use state and an exact allowed redirect.
