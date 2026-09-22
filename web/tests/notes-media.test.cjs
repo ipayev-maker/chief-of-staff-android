@@ -5,7 +5,7 @@ const tick=()=>new Promise(r=>setImmediate(r));
 function harness(){
  const els=new Map(),messages=[];const make=()=>({value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},appendChild(){},remove(){}});
  const doc={querySelector(q){if(!els.has(q))els.set(q,make());return els.get(q)},querySelectorAll(){return[]},createElement(){return make()},body:make()};
- const ctx=vm.createContext({document:doc,window:{},location:{origin:'https://chief-of-staff-v3-live.vercel.app'},URL,Blob,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,setInterval(){},confirm:()=>true,console});
+ const ctx=vm.createContext({document:doc,window:{},location:new URL('https://chief-of-staff-v3-live.vercel.app/'),URL,Blob,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,setInterval(){},confirm:()=>true,console});
  vm.runInContext(script+'\n;globalThis.T={S,noteState,syncNoteInputs,persistNote,flushNote,deleteNote,restoreNote,fullSignedUrl,assetMime,assetPreview,signAsset,uploadNoteFiles,notesPage,MEDIA_MIMES};',ctx);
  ctx.notify=(msg,type)=>messages.push({msg,type});vm.runInContext('toast=notify;notesPage=()=>{}',ctx);
  const note={id:'note-1',project_id:'project-1',title:'Title',plain_text:'saved',pinned:false,archived_at:null};ctx.T.S.tab='notes';ctx.T.S.note=note;ctx.T.S.notes=[note];ctx.T.S.project={id:'project-1'};

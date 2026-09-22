@@ -1,0 +1,40 @@
+name: Google Calendar contract tests
+
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'supabase/functions/cos-google-calendar/**'
+      - 'supabase/calendar-*.sql'
+      - 'docs/google-calendar-sync.md'
+      - '.github/workflows/google-calendar.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'supabase/functions/cos-google-calendar/**'
+      - 'supabase/calendar-*.sql'
+      - 'docs/google-calendar-sync.md'
+      - '.github/workflows/google-calendar.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Test application and calendar integration
+        working-directory: web
+        run: npm test
+      - name: Build static web application
+        working-directory: web
+        run: npm run build
