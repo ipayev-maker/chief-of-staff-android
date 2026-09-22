@@ -193,6 +193,29 @@ export function createStore({ url, serviceKey, fetchImpl = fetch,
     return rows[0];
   }
 
+  // One bounded page for interactive UIs. Unlike list(), this deliberately
+  // does not scan subsequent pages. The extra row may be used as a sentinel.
+  async function page(table, query = '', options = {}) {
+    const timeoutMs = callerBudget(options, requestTimeoutMs);
+    identifier(table);
+    const params = parameters(query);
+    const rawLimit = params.get('limit') ?? '50';
+    const rawOffset = params.get('offset') ?? '0';
+    if (!/^[1-9]\d*$/.test(rawLimit) || Number(rawLimit) > 101 ||
+        !/^\d+$/.test(rawOffset) || !Number.isSafeInteger(Number(rawOffset))) {
+      throw new CalendarStoreError('Invalid bounded pagination parameters.', { code: 'INVALID_INPUT' });
+    }
+    params.set('limit', rawLimit);
+    params.set('offset', rawOffset);
+    if (!params.has('order')) params.set('order', ORDERS[table] || 'id.asc');
+    const { data } = await request(table, { query: params, timeoutMs });
+    const result = arrayResult(data);
+    if (result.length > Number(rawLimit)) {
+      throw new CalendarStoreError('Database exceeded requested page size.', { code: 'STORE_PAGINATION' });
+    }
+    return result;
+  }
+
   async function upsert(table, row, onConflict) {
     if (typeof onConflict !== 'string' || !onConflict.split(',').every(part => /^[a-z][a-z0-9_]*$/.test(part))) {
       throw new CalendarStoreError('Explicit conflict columns are required.', { code: 'INVALID_INPUT' });
@@ -226,5 +249,5 @@ export function createStore({ url, serviceKey, fetchImpl = fetch,
     return data;
   }
 
-  return Object.freeze({ list, rows: list, insert, upsert, patch, remove, rpc });
+  return Object.freeze({ list, rows: list, page, insert, upsert, patch, remove, rpc });
 }

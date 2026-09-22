@@ -44,6 +44,28 @@ test('rows alias continues past short pages without Content-Range and honors com
   assert.deepEqual(offsets, [0, 1, 2, 3]);
 });
 
+test('page performs one bounded request, preserving offset and filters without changing full-list behavior', async () => {
+  const {createStore} = await import(modulePath);
+  let calls = 0;
+  const store = createStore({...config, fetchImpl:async url => {
+    calls++;
+    const params = new URL(url).searchParams;
+    assert.equal(params.get('limit'), '51');
+    assert.equal(params.get('offset'), '50');
+    assert.equal(params.get('archived_at'), 'is.null');
+    assert.equal(params.get('order'), 'created_at.desc,id.desc');
+    return json([{id:'one'}]);
+  }});
+  assert.deepEqual(await store.page('quick_notes', 'limit=51&offset=50&archived_at=is.null&order=created_at.desc,id.desc'), [{id:'one'}]);
+  assert.equal(calls, 1);
+  for (const query of ['limit=102', 'limit=0', 'offset=-1', 'offset=9007199254740992']) {
+    await assert.rejects(store.page('quick_notes', query), error => error.code === 'INVALID_INPUT');
+  }
+  assert.equal(calls, 1);
+  const overrun = createStore({...config, fetchImpl:async () => json([{id:1},{id:2}])});
+  await assert.rejects(overrun.page('quick_notes', 'limit=1'), error => error.code === 'STORE_PAGINATION');
+});
+
 test('pagination refuses inconsistent ranges instead of treating a partial snapshot as complete', async () => {
   const { createStore } = await import(modulePath);
   const store = createStore({ ...config, fetchImpl: async () => json([{ id: 1 }], 206, { 'content-range': '7-7/20' }) });

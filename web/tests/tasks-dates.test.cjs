@@ -17,7 +17,7 @@ function fixture() {
     return elements.get(id);
   };
   const calls=[],messages=[];
-  const context = vm.createContext({Date,Intl,URL,location:new URL('https://chief-of-staff-v3-live.vercel.app/'),console,crypto:{randomUUID},setInterval(){},
+  const context = vm.createContext({window:{addEventListener(){}},Date,Intl,URL,location:new URL('https://chief-of-staff-v3-live.vercel.app/'),console,crypto:{randomUUID},setInterval(){},
     setTimeout(){},clearTimeout(){},confirm:()=>true,
     document:{querySelector:element,querySelectorAll:()=>[]}});
   vm.runInContext(script,context,{filename:file});

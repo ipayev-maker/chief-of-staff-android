@@ -5,8 +5,8 @@ const tick=()=>new Promise(r=>setImmediate(r));
 function harness(){
  const els=new Map(),messages=[];const make=()=>({value:'',disabled:false,innerHTML:'',textContent:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},appendChild(){},remove(){}});
  const doc={querySelector(q){if(!els.has(q))els.set(q,make());return els.get(q)},querySelectorAll(){return[]},createElement(){return make()},body:make()};
- const ctx=vm.createContext({document:doc,window:{},location:new URL('https://chief-of-staff-v3-live.vercel.app/'),URL,Blob,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,setInterval(){},confirm:()=>true,console});
- vm.runInContext(script+'\n;globalThis.T={S,noteState,syncNoteInputs,persistNote,flushNote,deleteNote,restoreNote,fullSignedUrl,assetMime,assetPreview,signAsset,uploadNoteFiles,notesPage,MEDIA_MIMES};',ctx);
+ const ctx=vm.createContext({document:doc,window:{addEventListener(){}},location:new URL('https://chief-of-staff-v3-live.vercel.app/'),URL,Blob,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,setInterval(){},confirm:()=>true,console});
+ vm.runInContext(script+'\n;globalThis.T={S,createNote,noteState,syncNoteInputs,persistNote,flushNote,deleteNote,restoreNote,fullSignedUrl,assetMime,assetPreview,signAsset,uploadNoteFiles,notesPage,MEDIA_MIMES};',ctx);
  ctx.notify=(msg,type)=>messages.push({msg,type});vm.runInContext('toast=notify;notesPage=()=>{}',ctx);
  const note={id:'note-1',project_id:'project-1',title:'Title',plain_text:'saved',pinned:false,archived_at:null};ctx.T.S.tab='notes';ctx.T.S.note=note;ctx.T.S.notes=[note];ctx.T.S.project={id:'project-1'};
  doc.querySelector('#noteTitle').value='Title';doc.querySelector('#noteBody').value='saved';
@@ -33,5 +33,11 @@ function harness(){
  console.log('PASS: note upload implemented; inferred MIME stored and sent; unsupported types rejected');
  h=harness();vm.runInContext('notesPage=T.notesPage',h.ctx);h.T.notesPage();assert.equal(typeof h.els.get('#notePin').onclick,'function');assert.equal(typeof h.els.get('#noteDelete').onclick,'function');assert.equal(typeof h.els.get('#mediaInput').onchange,'function');assert.equal(typeof h.els.get('#noteBody').oninput,'function');
  console.log('PASS: notes rendering binds pin/archive/media/autosave without ReferenceError');
- console.log('7 notes/media regression groups passed');
+ h=harness();calls=[];h.api(async(p,o)=>{calls.push(o);return[{...h.note,...o.body}]});h.els.get('#noteTitle').value='   ';h.els.get('#noteBody').value='Note without title';await h.T.persistNote({quiet:true});assert.equal(calls[0].body.title,'');assert.equal(h.note.title,'');vm.runInContext('notesPage=T.notesPage',h.ctx);h.T.notesPage();assert.match(h.els.get('#wb').innerHTML,/<input id="noteTitle"[^>]*placeholder="Название \(необязательно\)"[^>]*value=""/);assert.ok(h.els.get('#wb').innerHTML.includes('Без названия</b>'));assert.equal(h.note.title,'','sidebar fallback never mutates stored title');
+ console.log('PASS: blank title persists as empty string and remains empty after rerender');
+ h=harness();calls=[];h.api(async(p,o)=>{calls.push(o);return[{id:'new-note',...o.body}]});await h.T.createNote();assert.equal(calls.length,1);assert.equal(calls[0].method,'POST');assert.equal(calls[0].body.title,'');assert.equal(h.T.S.note.title,'');
+ console.log('PASS: note creation sends empty title without placeholder text');
+ h=harness();calls=[];h.note.title='Новая заметка';h.els.get('#noteTitle').value='Новая заметка';h.els.get('#noteBody').value='Retain named note';h.api(async(p,o)=>{calls.push(o);return[{...h.note,...o.body}]});await h.T.persistNote({quiet:true});assert.equal(h.note.title,'Новая заметка');assert.equal(calls[0].body.title,'Новая заметка');
+ console.log('PASS: existing explicit titles are retained, not migrated');
+ console.log('10 notes/media regression groups passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
