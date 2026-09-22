@@ -4,6 +4,14 @@
   "cleanUrls": true,
   "rewrites": [
     {
+      "source": "/api/notes",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-notes"
+    },
+    {
+      "source": "/api/notes/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-notes/:path*"
+    },
+    {
       "source": "/api/google-calendar/:path*",
       "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-google-calendar/:path*"
     },
@@ -71,6 +79,32 @@
     },
     {
       "source": "/api/google-calendar/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/notes",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/notes/:path*",
       "headers": [
         {
           "key": "Cache-Control",

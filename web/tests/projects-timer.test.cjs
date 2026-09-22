@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const input=process.argv[2]||require('node:path').join(__dirname,'../index.html');
 const script=fs.readFileSync(input,'utf8').split('<script>')[1].split('</script>')[0].replace(/boot\(\);\s*$/,'');
 const node={addEventListener(){},querySelector(){return node},querySelectorAll(){return []},classList:{toggle(){}},style:{}};
-const context=vm.createContext({document:{querySelector(){return node},querySelectorAll(){return []}},setInterval(){},setTimeout(){},clearTimeout(){},Date,Intl,URL,location:new URL('https://chief-of-staff-v3-live.vercel.app/'),console,confirm:()=>true});
+const context=vm.createContext({window:{addEventListener(){}},document:{querySelector(){return node},querySelectorAll(){return []}},setInterval(){},setTimeout(){},clearTimeout(){},Date,Intl,URL,location:new URL('https://chief-of-staff-v3-live.vercel.app/'),console,confirm:()=>true});
 vm.runInContext(script,context);
 const run=code=>vm.runInContext(code,context);
 (async()=>{
