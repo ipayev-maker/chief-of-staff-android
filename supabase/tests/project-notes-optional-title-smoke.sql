@@ -79,7 +79,9 @@ begin
   stage := 'verify existing rows untouched';
   select coalesce(jsonb_object_agg(n.id::text,md5(to_jsonb(n)::text)),'{}'::jsonb)
     into after_rows from public.project_notes n
-    where n.id not in(created.id,defaulted.id);
+    -- Only rows present in our initial snapshot belong to this assertion.
+    -- A concurrent browser probe may legitimately insert a separate note.
+    where before_rows ? n.id::text;
   if after_rows is distinct from before_rows then
     raise exception 'The existing-note baseline changed during this probe.';
   end if;
