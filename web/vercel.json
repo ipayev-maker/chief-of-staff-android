@@ -3,14 +3,84 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/rest/v1/:path*", "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/rest/v1/:path*" },
-    { "source": "/functions/v1/:path*", "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/:path*" },
-    { "source": "/storage/v1/:path*", "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/storage/v1/:path*" }
+    {
+      "source": "/api/google-calendar/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-google-calendar/:path*"
+    },
+    {
+      "source": "/rest/v1/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/rest/v1/:path*"
+    },
+    {
+      "source": "/functions/v1/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/:path*"
+    },
+    {
+      "source": "/storage/v1/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/storage/v1/:path*"
+    }
   ],
   "headers": [
-    { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-    { "source": "/rest/v1/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }, { "key": "x-vercel-enable-rewrite-caching", "value": "0" }] },
-    { "source": "/functions/v1/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }, { "key": "x-vercel-enable-rewrite-caching", "value": "0" }] },
-    { "source": "/storage/v1/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }, { "key": "x-vercel-enable-rewrite-caching", "value": "0" }] }
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    },
+    {
+      "source": "/rest/v1/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/functions/v1/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/storage/v1/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/google-calendar/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    }
   ]
 }
