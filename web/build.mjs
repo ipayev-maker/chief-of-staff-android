@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const source = new URL('./index.html', import.meta.url);
@@ -8,4 +8,13 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
+for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js']) {
+  await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
+}
+// A real iframe viewport for manual responsive checks, never emitted in production.
+if (process.env.VERCEL_ENV === 'preview') {
+  await writeFile(new URL('./dist/_layout-preview.html', import.meta.url), await readFile(new URL('./tests/responsive-preview.html', import.meta.url)));
+} else {
+  await rm(new URL('./dist/_layout-preview.html', import.meta.url), { force: true });
+}
 console.log(`Built ${fileURLToPath(source)} (${Buffer.byteLength(html)} bytes)`);
