@@ -10,6 +10,8 @@ const TIME = new Date('2026-09-23T12:00:00Z');
 const COOKIE_TOKEN = 'synthetic-owner-session-token-012345678901234567890';
 const ID = '00000000-0000-4000-8000-000000000001';
 const PROJECT = '10000000-0000-4000-8000-000000000001';
+const TASK = '20000000-0000-4000-8000-000000000001';
+const REQUEST = '30000000-0000-4000-8000-000000000001';
 const note = (id = ID, other = {}) => ({
   id, title:'', plain_text:'Synthetic note', project_id:null, source:'web', source_message_id:null,
   telegram_chat_id:null, telegram_message_id:null, telegram_update_id:null,
@@ -21,7 +23,7 @@ async function fixture() {
   const data = {
     cos_calendar_connection:[{id:'owner', google_sub:'verified-owner-sub', status:'disconnected'}],
     cos_calendar_sessions:[{token_hash:await sha256(COOKIE_TOKEN), google_sub:'verified-owner-sub', expires_at:'2026-09-24T00:00:00Z'}],
-    quick_notes:[],
+    quick_notes:[], project_notes:[], cos_note_task_links:[],
   };
   const calls = [];
   const matches = (row, query) => [...new URLSearchParams(query)].every(([key, condition]) => {
@@ -58,6 +60,11 @@ async function fixture() {
       const rows = data[table].filter(row => matches(row, query));
       for (const row of rows) Object.assign(row, values, {revision:row.revision + 1, updated_at:TIME.toISOString()});
       return rows.map(row => ({...row}));
+    },
+    async rpc(name, args) {
+      calls.push({operation:'rpc', name, args});
+      return {task:{id:TASK, ...args.p_task},
+        source:{kind:args.p_source_kind, id:args.p_source_id, project_id:PROJECT}, replayed:false};
     },
   };
   const handler = createNotesHandler({store, now:() => TIME});
@@ -246,4 +253,162 @@ test('Supabase function path and rejected malformed JSON have the same owner-onl
   }
   assert.equal(Object.prototype.polluted, undefined);
   assert.equal(f.calls.some(call => call.operation === 'insert'), false);
+});
+
+test('project-filtered notes are the same editable records as global notes, including unassigned and archived filters', async () => {
+  const f = await fixture();
+  f.data.quick_notes.push(note(ID, {project_id:PROJECT}), note(TASK), note(REQUEST, {project_id:PROJECT, archived_at:TIME.toISOString()}));
+  let response = await (await f.handler(f.request({path:'?project_id=' + PROJECT}))).json();
+  assert.deepEqual(response.notes.map(row => row.id), [ID]);
+  await f.handler(f.request({method:'PATCH', path:'/' + ID, body:{revision:1, plain_text:'Edited from project'}}));
+  response = await (await f.handler(f.request())).json();
+  assert.equal(response.notes.find(row => row.id === ID).plain_text, 'Edited from project');
+  assert.equal(f.data.quick_notes.length, 3);
+  const unassigned = await (await f.handler(f.request({path:'?project_id=null'}))).json();
+  assert.deepEqual(unassigned.notes.map(row => row.id), [TASK]);
+  const archived = await (await f.handler(f.request({path:'?project_id=' + PROJECT + '&archived=true'}))).json();
+  assert.deepEqual(archived.notes.map(row => row.id), [REQUEST]);
+  for (const path of ['?project_id=not-a-uuid', '?project_id=eq.' + PROJECT, '?project_id=' + PROJECT + '&project_id=null']) {
+    assert.equal((await f.handler(f.request({path}))).status, 400);
+  }
+  assert.equal(f.calls.some(call => call.table === 'project_notes'), false);
+});
+
+test('quick and legacy note tasks use one atomic RPC with only confirmed task form fields', async () => {
+  const f = await fixture();
+  f.data.quick_notes.push(note(ID, {plain_text:'PRIVATE UNSELECTED NOTE TEXT', project_id:PROJECT}));
+  for (const [path, kind] of [['/' + ID + '/tasks', 'quick'], ['/project/' + ID + '/tasks', 'project']]) {
+    const response = await f.handler(f.request({method:'POST', path, body:{request_id:REQUEST,
+      task:{description:'  User-confirmed selection  ', details:'Edited task details', project_id:null, estimate_minutes:15}}}));
+    assert.equal(response.status, 201);
+    const result = await response.json();
+    assert.equal(result.task.id, TASK);
+    assert.equal(result.task.project_id, null);
+    assert.deepEqual(result.source, {kind, id:ID, project_id:PROJECT});
+    assert.equal(result.replayed, false);
+    assert.equal(JSON.stringify(result).includes('PRIVATE UNSELECTED'), false);
+  }
+  const calls = f.calls.filter(call => call.operation === 'rpc');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].name, 'cos_notes_create_task');
+  assert.deepEqual(calls[0].args, {p_source_kind:'quick', p_source_id:ID, p_request_id:REQUEST,
+    p_task:{description:'User-confirmed selection', details:'Edited task details', status:'open', direction:'internal',
+      project_id:null, participant_id:null, area_key:null, deadline:null, planned_on:null, next_check_on:null,
+      planned_start_at:null, planned_end_at:null, deadline_at:null, next_check_at:null, estimate_minutes:15}});
+  assert.equal(calls[1].args.p_source_kind, 'project');
+  assert.equal(f.calls.some(call => ['insert','patch','page'].includes(call.operation)), false);
+});
+
+test('task creation and source lookup require owner sessions, exact write Origin and fixed route methods', async () => {
+  const f = await fixture();
+  for (const path of ['/' + ID + '/tasks', '/project/' + ID + '/tasks']) {
+    for (const authenticated of [false, true]) {
+      const response = await f.handler(f.request({method:'POST', path, authenticated,
+        origin:authenticated ? 'https://other.example' : ORIGIN, body:{request_id:REQUEST, task:{description:'Task'}}}));
+      assert.equal(response.status, authenticated ? 403 : 401);
+    }
+    assert.equal((await f.handler(f.request({path}))).status, 405);
+  }
+  assert.equal((await f.handler(f.request({path:'/tasks/' + TASK + '/source', authenticated:false}))).status, 401);
+  assert.equal((await f.handler(f.request({method:'POST', path:'/tasks/' + TASK + '/source', body:{}}))).status, 405);
+  assert.equal((await f.handler(f.request({method:'PATCH', path:'/' + ID + '/tasks', body:{}}))).status, 405);
+  assert.equal(f.calls.length, 0);
+});
+
+test('task allowlist rejects forged identities, metadata, invalid UUIDs and invalid actual dates before RPC', async () => {
+  const f = await fixture();
+  const invalidTasks = [
+    {}, {description:' '}, {description:'x'.repeat(2001)}, {description:'x\0'}, {details:'x'.repeat(64001)},
+    {id:TASK}, {source_message_id:ID}, {source_kind:'quick'}, {cos_version:1}, {created_at:TIME.toISOString()},
+    {status:'unknown'}, {direction:'unknown'}, {project_id:'bad'}, {participant_id:[]}, {area_key:''},
+    {estimate_minutes:0}, {estimate_minutes:525601}, {estimate_minutes:1.5}, {estimate_minutes:'15'},
+    {deadline:'2026-02-30'}, {planned_on:'2025-02-29'}, {next_check_on:'0000-01-01'}, {deadline:'2026-1-01'},
+    {deadline_at:'2026-09-23T12:00:00'}, {deadline_at:'2026-02-30T12:00:00Z'}, {deadline_at:'2026-09-23T24:00:00Z'},
+    {next_check_at:'2026-09-23T12:60:00Z'}, {deadline_at:'2026-09-23T12:00:00+00:60'},
+    {planned_end_at:TIME.toISOString()}, {planned_start_at:'2026-09-23T12:00:00Z', planned_end_at:'2026-09-23T12:30:00+01:00'},
+  ];
+  for (const value of invalidTasks) {
+    const task = Object.keys(value).length ? {description:'Task', ...value} : {};
+    const response = await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body:{request_id:REQUEST, task}}));
+    assert.equal(response.status, 400, JSON.stringify(task));
+    assert.deepEqual(await response.json(), {error:'invalid_task'});
+  }
+  for (const body of [{request_id:'bad', task:{description:'x'}}, {request_id:REQUEST, task:[]},
+    {request_id:REQUEST, task:{description:'x'}, owner_email:'owner@example.test'}]) {
+    assert.equal((await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body}))).status, 400);
+  }
+  assert.equal((await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks?force=true', body:{request_id:REQUEST, task:{description:'x'}}}))).status, 400);
+  assert.equal(f.calls.some(call => call.operation === 'rpc'), false);
+});
+
+test('task date validation accepts leap days and compares explicit-offset planned instants', async () => {
+  const f = await fixture();
+  const task = {description:'Valid schedule', deadline:'2028-02-29', planned_on:'2026-09-23', next_check_on:'2026-10-01',
+    planned_start_at:'2026-09-23T12:00:00+02:00', planned_end_at:'2026-09-23T10:30:00Z',
+    deadline_at:'2028-02-29T18:00:00.123456+02:00', estimate_minutes:525600};
+  const response = await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body:{request_id:REQUEST, task}}));
+  assert.equal(response.status, 201);
+  const rpc = f.calls.find(call => call.operation === 'rpc');
+  assert.equal(rpc.args.p_task.deadline, task.deadline);
+  assert.equal(rpc.args.p_task.deadline_at, task.deadline_at);
+  assert.equal(rpc.args.p_task.planned_start_at, task.planned_start_at);
+});
+
+test('retries are delegated to atomic RPC and return the existing task even after source archival', async () => {
+  const f = await fixture();
+  const row = note(ID); f.data.quick_notes.push(row);
+  const transactions = [];
+  f.store.rpc = async (name, args) => {
+    transactions.push({name, args});
+    if (transactions.length === 3) throw {code:'PT409', message:'SENSITIVE_PAYLOAD'};
+    return {task:{id:TASK, description:'Confirmed task', internal_secret:'DO_NOT_RETURN'},
+      source:{kind:'quick', id:ID, project_id:null, plain_text:'PRIVATE_SOURCE_TEXT'}, replayed:transactions.length > 1};
+  };
+  const body = {request_id:REQUEST, task:{description:'Confirmed task'}};
+  const first = await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body}));
+  assert.equal(first.status, 201);
+  row.archived_at = TIME.toISOString();
+  const repeated = await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body}));
+  assert.equal(repeated.status, 200);
+  const result = await repeated.json();
+  assert.deepEqual(result, {task:{id:TASK, description:'Confirmed task'}, source:{kind:'quick', id:ID, project_id:null}, replayed:true});
+  assert.deepEqual(transactions[0], transactions[1]);
+  const changed = await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body:{...body, task:{description:'Changed task'}}}));
+  assert.equal(changed.status, 409);
+  assert.deepEqual(await changed.json(), {error:'task_request_conflict'});
+  assert.equal(f.calls.some(call => ['insert','patch','page'].includes(call.operation)), false);
+});
+
+test('private task source lookup returns only identity and current project, with bounded queries and no note text', async () => {
+  const f = await fixture();
+  assert.deepEqual(await (await f.handler(f.request({path:'/tasks/' + TASK + '/source'}))).json(), {source:null});
+  for (const kind of ['quick','project']) {
+    f.data.cos_note_task_links = [{commitment_id:TASK, source_kind:kind, source_id:ID, payload_hash:'SECRET_HASH'}];
+    f.data[kind === 'quick' ? 'quick_notes' : 'project_notes'] = [note(ID, {project_id:PROJECT, archived_at:TIME.toISOString(), plain_text:'DO_NOT_RETURN'})];
+    const response = await f.handler(f.request({path:'/tasks/' + TASK + '/source'}));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {source:{kind, id:ID, project_id:PROJECT}});
+  }
+  for (const call of f.calls.filter(call => call.operation === 'page')) {
+    assert.equal(call.query.get('limit'), '1');
+    assert.equal(call.options.timeoutMs, 8000);
+    assert.ok(!call.query.get('select').includes('plain_text'));
+    // The link table's primary key is request_id, not the store's default id.
+    if (call.table === 'cos_note_task_links') assert.equal(call.query.get('order'), 'request_id.asc');
+  }
+  assert.equal((await f.handler(f.request({path:'/tasks/' + TASK + '/source?select=*'}))).status, 400);
+});
+
+test('task transaction failures return safe source/conflict/validation errors without database details', async () => {
+  const f = await fixture();
+  for (const [code, status, error] of [['PT400',400,'invalid_task'], ['PT404',404,'note_not_found'],
+    ['PT409',409,'task_request_conflict'], ['PT410',409,'source_archived'], ['23503',400,'invalid_task'], ['22008',400,'invalid_task'],
+    ['42501',503,'notes_unavailable'], ['XX000',503,'notes_unavailable']]) {
+    f.store.rpc = async () => {throw {code, message:'SECRET SQL DETAIL'};};
+    const response = await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body:{request_id:REQUEST, task:{description:'Task'}}}));
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), {error});
+  }
+  f.store.rpc = async () => ({task:{id:TASK}, source:{kind:'quick', id:ID, project_id:null}, replayed:'false'});
+  assert.equal((await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body:{request_id:REQUEST, task:{description:'Task'}}}))).status, 503);
 });
