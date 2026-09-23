@@ -8,7 +8,7 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
-for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js']) {
+for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
 // A real iframe viewport for manual responsive checks, never emitted in production.

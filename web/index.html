@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7f8fa"><title>Chief of Staff v3.7.0</title><style>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7f8fa"><title>Chief of Staff v3.8.0</title><style>
 :root{
   --bg:#f3f6fb;--panel:#ffffff;--panel2:#f8faff;--ink:#142033;--muted:#637086;--line:#d6deea;
   --blue:#3768e8;--blue2:#224dbb;--blueSoft:#edf2ff;--green:#16805b;--greenSoft:#e8f7f1;
@@ -60,15 +60,15 @@ body{font-size:15px}button,input,textarea,select{font:inherit;color:inherit}butt
 @media(max-width:760px){.sidebar{flex-wrap:wrap}.sidebar nav{order:4;flex:0 0 100%;margin:8px 0 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.sidebar nav button[data-sec]{width:100%;height:42px;min-height:42px;font-size:12px;padding:8px 3px}.sidebar nav button[data-sec]::after{content:none}.calendar-settings-trigger{margin-left:auto}.quick-notes-workspace{grid-template-columns:1fr}.quick-notes-list{border-right:0;border-bottom:1px solid var(--line);max-height:235px}.quick-note-editor{padding:14px}.quick-notes-page .head-actions{margin-top:12px}.quick-note-editor .title{font-size:21px}.quick-note-actions .btn{flex:1 1 auto}.quick-note-save-state{flex-basis:100%;margin-left:0}.task-drawer{top:115px}}
 
 .project-notes-tools{display:grid;gap:8px;margin-bottom:12px}.project-notes-tools .actions{display:flex;flex-wrap:wrap;gap:5px}.side-item .note-source{display:block;font-size:11px;color:var(--muted);margin-top:4px}#wb>.quick-notes-page{padding:0;max-width:none}#wb .quick-notes-workspace{border:0;border-radius:0}
-</style><link rel="stylesheet" href="/dashboard.css?v=3.7.0"><link rel="stylesheet" href="/date-picker.css?v=3.7.0"><script src="/date-picker.js?v=3.7.0" defer></script></head><body><div class="app"><aside class="sidebar"><div class="brand"><span class="logo">C</span><div><b>Chief of Staff</b><small>рабочая среда</small></div></div><nav id="nav"><button class="active" data-sec="today"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18m-13 5h3"/></svg><span>Сегодня</span></button><button data-sec="tasks"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 9 1.5 1.5L12 8m2 2h2m-8 6h8"/></svg><span>Задачи</span></button><button data-sec="projects"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Проекты</span></button><button data-sec="notes" aria-label="Заметки"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8m-8 4h5"/></svg><span>Заметки</span></button><button disabled>Календарь</button><button disabled>Люди</button><button disabled>Inbox</button></nav><div class="spacer"></div><button id="calendarSettings" class="calendar-settings-trigger" type="button" aria-haspopup="dialog"><span aria-hidden="true">▦</span><span>Google Calendar</span></button><button id="nikBtn" class="nik" type="button">✦ <span><b>Никодим</b><small>ассистент</small></span></button></aside><main id="main"><div class="empty">Загружаю данные…</div></main></div><aside id="nikPanel" class="nik-panel"><header><div><span class="logo">✦</span><div><b>Никодим</b><small id="nikCtx">вся система</small></div></div><button id="nikClose" type="button">×</button></header><div class="nik-body"><p>Работаю по структуре Chief of Staff: задачи, сроки, ожидания и связи.</p><button type="button" data-q="overdue">Что просрочено?</button><button type="button" data-q="waiting">Что ждём от других?</button><button type="button" data-q="blocks">Что блокирует проект?</button><pre id="nikAnswer"></pre></div></aside><script>
+</style><link rel="stylesheet" href="/dashboard.css?v=3.8.0"><link rel="stylesheet" href="/date-picker.css?v=3.7.0"><script src="/date-picker.js?v=3.7.0" defer></script><link rel="stylesheet" href="/calendar-view.css?v=3.8.0"><script data-calendar-view src="/calendar-view.js?v=3.8.0" defer></script></head><body><div class="app"><aside class="sidebar"><div class="brand"><span class="logo">C</span><div><b>Chief of Staff</b><small>рабочая среда</small></div></div><nav id="nav"><button class="active" data-sec="today"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18m-13 5h3"/></svg><span>Сегодня</span></button><button data-sec="tasks"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 9 1.5 1.5L12 8m2 2h2m-8 6h8"/></svg><span>Задачи</span></button><button data-sec="projects"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Проекты</span></button><button data-sec="notes" aria-label="Заметки"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8m-8 4h5"/></svg><span>Заметки</span></button><button data-sec="calendar"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h1m3 0h1m3 0h1m-9 3h1m3 0h1"/></svg><span>Календарь</span></button><button disabled>Люди</button><button disabled>Inbox</button></nav><div class="spacer"></div><button id="calendarSettings" class="calendar-settings-trigger" type="button" aria-haspopup="dialog"><span aria-hidden="true">▦</span><span>Google Calendar</span></button><button id="nikBtn" class="nik" type="button">✦ <span><b>Никодим</b><small>ассистент</small></span></button></aside><main id="main"><div class="empty">Загружаю данные…</div></main></div><aside id="nikPanel" class="nik-panel"><header><div><span class="logo">✦</span><div><b>Никодим</b><small id="nikCtx">вся система</small></div></div><button id="nikClose" type="button">×</button></header><div class="nik-body"><p>Работаю по структуре Chief of Staff: задачи, сроки, ожидания и связи.</p><button type="button" data-q="overdue">Что просрочено?</button><button type="button" data-q="waiting">Что ждём от других?</button><button type="button" data-q="blocks">Что блокирует проект?</button><pre id="nikAnswer"></pre></div></aside><script>
 const DIRECT='https://spabmyyxiufuzsaydrmx.supabase.co';
 const BASE='';
 const KEY='sb_publishable_CNZsixovw_VFqkJNusVKFw_EErlVgMI';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYWJteXl4aXVmdXpzYXlkcm14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODM0NTUsImV4cCI6MjEwMTU1OTQ1NX0.PyIB9co32csgjuvOvfVpxizWEA2JqBg107Qy-ydg37U';
-const BUILD='v3.7.0-refined-dashboard-20260923';
+const BUILD='v3.8.0-calendar-view-20260923';
 const S={
   section:'today',projects:[],tasks:[],participants:[],areas:[],meetings:[],notes:[],assets:[],taskAssets:[],links:[],layouts:[],time:[],minutes:{},
-  project:null,tab:'overview',filter:'active',areaFilter:'all',task:null,taskDraft:null,taskSaveBusy:false,note:null,meeting:null,showCompleted:false,taskShowCompleted:false,showArchivedNotes:false,captureDrafts:[],captureBusy:false,captureMessage:'',linkMode:false,linkFrom:null,linkType:'blocks'
+  project:null,calendarReturn:false,tab:'overview',filter:'active',areaFilter:'all',task:null,taskDraft:null,taskSaveBusy:false,note:null,meeting:null,showCompleted:false,taskShowCompleted:false,showArchivedNotes:false,captureDrafts:[],captureBusy:false,captureMessage:'',linkMode:false,linkFrom:null,linkType:'blocks'
 };
 const $=(q,r=document)=>r.querySelector(q), $$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -177,7 +177,7 @@ function clearNoteTaskBackup(){try{sessionStorage.removeItem(NOTE_TASK_BACKUP_KE
 function backupNoteTaskDraft(){const draft=S.taskDraft;if(!draft?._noteSource)return;try{sessionStorage.setItem(NOTE_TASK_BACKUP_KEY,JSON.stringify(draft));draft._backupAvailable=true}catch{draft._backupAvailable=false}}
 function readNoteTaskBackup(){try{const draft=JSON.parse(sessionStorage.getItem(NOTE_TASK_BACKUP_KEY)||'null');if(!draft?._draft||!['project','quick'].includes(draft._noteSource?.kind)||typeof draft.description!=='string'||typeof draft.details!=='string'||draft.description.length>2000||draft.details.length>64000||!draft._noteRequestId)return null;return draft}catch{return null}}
 
-function beginTaskDraft(projectId=null,area=null){if(S.taskSaveBusy||resumePendingNoteTask())return;S.taskDraft={id:'draft-'+uid(),_draft:true,project_id:projectId,area_key:area,description:'',details:'',direction:'internal',status:'open'};S.task=S.taskDraft.id;renderTaskContext();$('#tdDesc')?.focus()}
+function beginTaskDraft(projectId=null,area=null,deadline=null){if(S.taskSaveBusy||resumePendingNoteTask())return;S.taskDraft={id:'draft-'+uid(),_draft:true,project_id:projectId,area_key:area,description:'',details:'',direction:'internal',status:'open',...(deadline?{deadline}: {})};S.task=S.taskDraft.id;renderTaskContext();$('#tdDesc')?.focus()}
 function closeTaskDrawer(){if(S.taskSaveBusy)return;if(S.taskDraft?.id===S.task){if(noteTaskPinned(S.taskDraft))backupNoteTaskDraft();else{if(S.taskDraft._noteSource)clearNoteTaskBackup();S.taskDraft=null;}}S.task=null;renderTaskContext()}
 function taskTimingPayload(v){
   const {planDate,planStart,planEnd,deadlineDate,deadlineTime,checkDate,checkTime}=v;
@@ -230,7 +230,7 @@ function roundTo5(d=new Date()){const x=new Date(d);x.setSeconds(0,0);const m=x.
 const localDate=v=>{if(!v)return'';const d=new Date(v),z=n=>String(n).padStart(2,'0');return`${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`};
 const localTime=v=>{if(!v)return'';const d=new Date(v),z=n=>String(n).padStart(2,'0');d.setSeconds(0,0);d.setMinutes(Math.round(d.getMinutes()/5)*5);return`${z(d.getHours())}:${z(d.getMinutes())}`};
 function timeOptions(selected){let out='';for(let h=0;h<24;h++)for(let m=0;m<60;m+=5){const v=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');out+=`<option value="${v}" ${v===selected?'selected':''}>${v}</option>`}return out}
-function meetingDurationMinutes(m){if(!m?.starts_at||!m?.ends_at)return 60;const n=Math.round((new Date(m.ends_at)-new Date(m.starts_at))/60000);return n>0&&n<=480?n:60}
+function meetingDurationMinutes(m){if(!m?.starts_at||!m?.ends_at)return 60;const n=Math.round((new Date(m.ends_at)-new Date(m.starts_at))/60000);return Number.isFinite(n)&&n>0?n:60}
 function meetingDraftTimes(){const date=$('#mDate')?.value,time=$('#mStartTime')?.value,dur=Math.max(5,+($('#mDuration')?.value||60));if(!date||!time)return{start:null,end:null};const start=new Date(`${date}T${time}`);return{start:start.toISOString(),end:new Date(start.getTime()+dur*60000).toISOString()}}
 function updateMeetingEndLabel(){const x=meetingDraftTimes(),el=$('#mEndLabel');if(el)el.textContent=x.end?new Date(x.end).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—'}
 
@@ -252,7 +252,7 @@ async function boot(){
   }catch(e){$('#main').innerHTML=`<div class="empty"><div class="error">Ошибка загрузки: ${esc(e.message)}</div></div>`}
 }
 
-$('#nav').addEventListener('click',async e=>{const b=e.target.closest('[data-sec]');if(!b)return;try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}S.section=b.dataset.sec;S.project=null;if(S.section==='notes')setQuickNotesScope(null);S.task=null;$$('#nav [data-sec]').forEach(x=>x.classList.toggle('active',x===b));render();if(S.section==='notes')loadQuickNotes().catch(()=>{})});
+$('#nav').addEventListener('click',async e=>{const b=e.target.closest('[data-sec]');if(!b||S.taskSaveBusy)return;try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}calendarNavigationSequence++;S.calendarReturn=false;S.section=b.dataset.sec;S.project=null;if(S.section==='notes')setQuickNotesScope(null);S.task=null;$$('#nav [data-sec]').forEach(x=>x.classList.toggle('active',x===b));render();if(S.section==='notes')loadQuickNotes().catch(()=>{})});
 $('#nikBtn').onclick=()=>$('#nikPanel').classList.add('open');$('#nikClose').onclick=()=>$('#nikPanel').classList.remove('open');
 $$('.nik-body [data-q]').forEach(b=>b.onclick=()=>answerNik(b.dataset.q));
 function answerNik(q){
@@ -268,7 +268,54 @@ function render(){
   if(S.section==='projects')return projectsPage();
   if(S.section==='tasks')return globalTasksPage();
   if(S.section==='notes')return quickNotesPage();
+  if(S.section==='calendar')return calendarPage();
   return todayPage();
+}
+
+let calendarNavigationSequence=0;
+function calendarPage(){
+  const task=S.task&&!S.project?taskById(S.task):null;
+  $('#main').innerHTML=`<div id="calendarView"></div>${task?taskDrawer(task):''}`;
+  if(!window.CoSCalendarView){
+    $('#calendarView').innerHTML='<section class="page"><header class="head"><div><h1>Календарь</h1><p>Не удалось загрузить календарь.</p></div></header><button class="btn" id="calendarRetry" type="button">Повторить</button></section>';
+    $('#calendarRetry').onclick=calendarPage;
+    $('script[data-calendar-view]')?.addEventListener('load',()=>{if(S.section==='calendar'&&!S.project)calendarPage()},{once:true});
+  }else window.CoSCalendarView.render($('#calendarView'),{
+    tasks:S.tasks,meetings:S.meetings,projects:S.projects,
+    onOpenTask:id=>{if(S.taskSaveBusy)return;cancelCalendarProjectOpen();if(resumePendingNoteTask())return;openTaskFromAnywhere(id).catch(e=>toast(e.message,'error'))},
+    onOpenMeeting:openCalendarMeeting,onCreateTask:createCalendarTask,onConnect:()=>{cancelCalendarProjectOpen();openCalendarSettings()},onViewChange:cancelCalendarProjectOpen
+  });
+  if(task)bindTaskDrawer();
+}
+function cancelCalendarProjectOpen(){
+  calendarNavigationSequence++;
+  if(S.section==='calendar'&&S.project){projectOpenSequence++;S.project=null;S.calendarReturn=false;setQuickNotesScope(null)}
+}
+function createCalendarTask(day){
+  const parsed=/^\d{4}-\d{2}-\d{2}$/.test(day||'')?new Date(`${day}T12:00:00`):null;
+  if(!parsed||!Number.isFinite(parsed.getTime())||localDate(parsed)!==day)return toast('Выберите корректную дату','error');
+  if(S.taskSaveBusy)return;cancelCalendarProjectOpen();
+  beginTaskDraft(null,null,day);
+}
+async function openCalendarMeeting(id){
+  if(S.taskSaveBusy||resumePendingNoteTask())return;
+  const meeting=S.meetings.find(m=>m.id===id);if(!meeting)return;
+  const ticket=++calendarNavigationSequence;
+  const project=S.projects.find(p=>p.id===meeting.project_id);
+  if(!project){projectOpenSequence++;S.project=null;S.calendarReturn=false;setQuickNotesScope(null);return showCalendarMeetingDetails(meeting)}
+  const opened=await openProject(project.id);
+  if(ticket!==calendarNavigationSequence||S.section!=='calendar'||S.project?.id!==project.id)return;
+  if(opened!==true){S.project=null;S.calendarReturn=false;setQuickNotesScope(null);render();return}
+  S.calendarReturn=true;S.tab='meetings';S.meeting=meeting;workspace();
+}
+function showCalendarMeetingDetails(meeting){
+  $('#calendarMeetingDetails')?.close();
+  const dialog=document.createElement('dialog');dialog.id='calendarMeetingDetails';dialog.className='edit-dialog calendar-meeting-details';
+  dialog.setAttribute('aria-labelledby','calendarMeetingTitle');
+  const date=value=>{const parsed=new Date(value);return value&&Number.isFinite(parsed.getTime())?parsed.toLocaleString('ru-RU',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Не указано'};
+  let link='';try{const url=new URL(meeting.meeting_url);if(['https:','http:'].includes(url.protocol))link=`<a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">Ссылка на встречу ↗</a>`}catch{}
+  dialog.innerHTML=`<header><h2 id="calendarMeetingTitle">${esc(meeting.title||'Встреча')}</h2><button class="icon-btn" type="button" data-meeting-details-close aria-label="Закрыть встречу">×</button></header><p class="field-hint">Без доступного проекта</p><dl><dt>Начало</dt><dd>${esc(date(meeting.starts_at))}</dd><dt>Окончание</dt><dd>${esc(date(meeting.ends_at))}</dd>${meeting.location?`<dt>Место</dt><dd>${esc(meeting.location)}</dd>`:''}</dl>${link}${meeting.agenda?`<h3>Повестка</h3><p class="calendar-meeting-text">${esc(meeting.agenda)}</p>`:''}${meeting.raw_notes?`<h3>Заметки</h3><p class="calendar-meeting-text">${esc(meeting.raw_notes)}</p>`:''}`;
+  document.body.appendChild(dialog);$('[data-meeting-details-close]',dialog).onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());dialog.showModal();
 }
 
 function todayPage(){
@@ -341,7 +388,7 @@ async function openProjectEditor(id){
 async function setProjectStatus(id,status){try{await persistProjectChanges(id,{status});render();toast('Статус проекта сохранён')}catch(e){toast(e.message,'error')}}
 let projectOpenSequence=0;
 async function openProject(id){
-  const p=S.projects.find(x=>x.id===id);if(!p)return;try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}const request=++projectOpenSequence;setQuickNotesScope(id);S.projectNoteKind='project';S.project=p;S.tab='overview';S.task=null;S.meeting=null;S.note=null;
+  const p=S.projects.find(x=>x.id===id);if(!p)return;try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}const request=++projectOpenSequence;S.calendarReturn=false;setQuickNotesScope(id);S.projectNoteKind='project';S.project=p;S.tab='overview';S.task=null;S.meeting=null;S.note=null;
   try{
     const[n,l,lay,a]=await Promise.all([
       api(R('project_notes',`select=*&project_id=eq.${id}&order=pinned.desc,updated_at.desc`)),
@@ -349,13 +396,13 @@ async function openProject(id){
       api(R('project_task_layout',`select=*&project_id=eq.${id}`)),
       api(R('note_assets',`select=*&project_id=eq.${id}&order=created_at.desc`))
     ]);
-    await Promise.all((a||[]).map(asset=>signAsset(asset)));if(request!==projectOpenSequence||S.project?.id!==id)return;S.notes=n||[];S.links=l||[];S.layouts=lay||[];S.assets=a||[];S.showArchivedNotes=false;S.note=S.notes.find(x=>!x.archived_at)||null;if(!S.note)S.projectNoteKind='quick';render();
-  }catch(e){if(request===projectOpenSequence)toast('Не удалось открыть проект: '+e.message,'error')}
+    await Promise.all((a||[]).map(asset=>signAsset(asset)));if(request!==projectOpenSequence||S.project?.id!==id)return;S.notes=n||[];S.links=l||[];S.layouts=lay||[];S.assets=a||[];S.showArchivedNotes=false;S.note=S.notes.find(x=>!x.archived_at)||null;if(!S.note)S.projectNoteKind='quick';render();return true;
+  }catch(e){if(request===projectOpenSequence)toast('Не удалось открыть проект: '+e.message,'error');return false}
 }
 function workspace(){
   const p=S.project,tabs=[['overview','Обзор'],['space','Пространство'],['tasks','Задачи'],['notes','Заметки'],['meetings','Встречи'],['time','Время']],timer=activeTimer(),timerTask=timer&&S.tasks.find(t=>t.id===timer.commitment_id);
-  $('#main').innerHTML=`<section class="workspace"><header class="project-head"><div class="project-title-row"><div><div class="crumb"><button id="back">Проекты</button><span>/</span><b>${esc(p.title)}</b></div><h1>${esc(p.title)}</h1><button class="btn small" type="button" id="editCurrentProject">Редактировать проект</button></div>${timer?timerBannerHtml():''}</div><nav class="tabs">${tabs.map(([v,l])=>`<button data-tab="${v}" class="${S.tab===v?'active':''}">${l}</button>`).join('')}</nav></header><div id="wb"></div></section>`;
-  $('#editCurrentProject').onclick=()=>openProjectEditor(p.id);bindTimerControls();$('#back').onclick=async()=>{try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}S.project=null;S.section='projects';projectsPage()};$$('.tabs button').forEach(b=>b.onclick=async()=>{const next=b.dataset.tab;if(next===S.tab)return;try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}S.tab=next;S.task=null;workspace()});({overview,space,tasks:tasksPage,notes:notesPage,meetings:meetingsPage,time:timePage}[S.tab]||overview)();
+  $('#main').innerHTML=`<section class="workspace"><header class="project-head"><div class="project-title-row"><div><div class="crumb"><button id="back">${S.calendarReturn?'Календарь':'Проекты'}</button><span>/</span><b>${esc(p.title)}</b></div><h1>${esc(p.title)}</h1><button class="btn small" type="button" id="editCurrentProject">Редактировать проект</button></div>${timer?timerBannerHtml():''}</div><nav class="tabs">${tabs.map(([v,l])=>`<button data-tab="${v}" class="${S.tab===v?'active':''}">${l}</button>`).join('')}</nav></header><div id="wb"></div></section>`;
+  $('#editCurrentProject').onclick=()=>openProjectEditor(p.id);bindTimerControls();$('#back').onclick=async()=>{try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}const backToCalendar=S.calendarReturn;S.calendarReturn=false;S.project=null;S.section=backToCalendar?'calendar':'projects';$$('#nav [data-sec]').forEach(b=>b.classList.toggle('active',b.dataset.sec===S.section));render()};$$('.tabs button').forEach(b=>b.onclick=async()=>{const next=b.dataset.tab;if(next===S.tab)return;try{await flushNote();await flushQuickNote()}catch(e){toast(e.message,'error');return}S.tab=next;S.task=null;workspace()});({overview,space,tasks:tasksPage,notes:notesPage,meetings:meetingsPage,time:timePage}[S.tab]||overview)();
 }
 function overview(){
   const a=projectTasks(),open=a.filter(t=>!done(t)),wait=open.filter(t=>t.direction==='to_me'),over=open.filter(t=>isTaskOverdue(t)),actual=open.reduce((s,t)=>s+taskSeconds(t.id),0);
