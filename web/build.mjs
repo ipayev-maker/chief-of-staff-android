@@ -11,4 +11,8 @@ await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
 for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
+// A real iframe viewport for manual responsive checks, never emitted in production.
+if (process.env.VERCEL_ENV === 'preview') {
+  await writeFile(new URL('./dist/_layout-preview.html', import.meta.url), await readFile(new URL('./tests/responsive-preview.html', import.meta.url)));
+}
 console.log(`Built ${fileURLToPath(source)} (${Buffer.byteLength(html)} bytes)`);
