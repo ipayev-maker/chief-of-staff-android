@@ -28,7 +28,7 @@ async function fixture() {
   const calls = [];
   const matches = (row, query) => [...new URLSearchParams(query)].every(([key, condition]) => {
     if (['select','order','offset','limit'].includes(key)) return true;
-    if (condition === 'is.null') return row[key] === null;
+    if (condition === 'is.null') return row[key] === null || key === 'deleted_at' && row[key] === undefined;
     if (condition === 'not.is.null') return row[key] !== null;
     const split = condition.indexOf('.');
     const operator = condition.slice(0, split), value = condition.slice(split + 1);
@@ -133,15 +133,15 @@ test('query injection, duplicate pagination and oversized page sizes are rejecte
   assert.equal(f.calls.some(call => call.table === 'quick_notes'), false);
 });
 
-test('mutations require exact application Origin and cannot use DELETE', async () => {
+test('mutations require exact application Origin and reject unsupported methods', async () => {
   const f = await fixture();
   for (const origin of [null, 'null', 'https://other.example']) {
-    for (const method of ['POST','PATCH']) {
-      const response = await f.handler(f.request({method, path:method === 'PATCH' ? '/' + ID : '', origin, body:{plain_text:'test',revision:1}}));
+    for (const method of ['POST','PATCH','DELETE']) {
+      const response = await f.handler(f.request({method, path:method === 'POST' ? '' : '/' + ID, origin, body:{plain_text:'test',revision:1}}));
       assert.equal(response.status, 403);
     }
   }
-  assert.equal((await f.handler(f.request({method:'DELETE',path:'/' + ID}))).status, 405);
+  assert.equal((await f.handler(f.request({method:'PUT',path:'/' + ID}))).status, 405);
   assert.equal(f.calls.length, 0);
 });
 

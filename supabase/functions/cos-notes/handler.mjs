@@ -13,7 +13,7 @@ const TASK_FIELDS = Object.freeze([
   'deadline', 'planned_on', 'next_check_on', 'planned_start_at', 'planned_end_at',
   'deadline_at', 'next_check_at', 'estimate_minutes',
 ]);
-const TASK_RESPONSE_FIELDS = Object.freeze(['id', ...TASK_FIELDS, 'created_at', 'updated_at', 'cos_version']);
+const TASK_RESPONSE_FIELDS = Object.freeze(['id', ...TASK_FIELDS, 'created_at', 'updated_at', 'cos_version', 'deleted_at']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RESPONSE_HEADERS = Object.freeze({
   'Content-Type': 'application/json; charset=utf-8',
@@ -56,12 +56,16 @@ function resource(url) {
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
   let parts = /^tasks\/([^/]+)\/source$/.exec(path);
   if (parts) return {kind: 'taskSource', id: resourceUuid(parts[1]), methods: ['GET']};
+  parts = /^tasks\/([^/]+)$/.exec(path);
+  if (parts) return {kind: 'deleteTask', id: resourceUuid(parts[1]), methods: ['DELETE']};
+  parts = /^project\/([^/]+)$/.exec(path);
+  if (parts) return {kind: 'projectNote', id: resourceUuid(parts[1]), methods: ['DELETE']};
   parts = /^project\/([^/]+)\/tasks$/.exec(path);
   if (parts) return {kind: 'createTask', sourceKind: 'project', id: resourceUuid(parts[1]), methods: ['POST']};
   parts = /^([^/]+)\/tasks$/.exec(path);
   if (parts) return {kind: 'createTask', sourceKind: 'quick', id: resourceUuid(parts[1]), methods: ['POST']};
   if (path.includes('/')) fail(404, 'not_found');
-  return {kind: 'note', id: resourceUuid(path), methods: ['GET', 'PATCH']};
+  return {kind: 'note', id: resourceUuid(path), methods: ['GET', 'PATCH', 'DELETE']};
 }
 function resourceUuid(value) {
   if (!UUID.test(value)) fail(400, 'invalid_id');
@@ -218,6 +222,7 @@ function sourceView(source) {
 }
 
 function taskResult(result) {
+  if (result?.task?.deleted_at) fail(409, 'task_deleted');
   if (!result?.task || !UUID.test(result.task.id) || typeof result.replayed !== 'boolean') fail(503, 'notes_unavailable');
   return {task: Object.fromEntries(TASK_RESPONSE_FIELDS.filter(key => own(result.task, key)).map(key => [key, result.task[key]])),
     source: sourceView(result.source), replayed: result.replayed};
@@ -244,7 +249,7 @@ export function createNotesHandler({store, now = () => new Date()}) {
   }
 
   return async function handleNotes(request) {
-    let creatingTask = false;
+    let creatingTask = false, deletingTask = false;
     try {
       const url = new URL(request.url);
       const route = resource(url);
@@ -253,6 +258,18 @@ export function createNotesHandler({store, now = () => new Date()}) {
       if (!route.methods.includes(method)) return json({error: 'method_not_allowed'}, 405);
       if (method !== 'GET' && request.headers.get('Origin') !== APP_ORIGIN) fail(403, 'invalid_origin');
       await authenticate(request);
+      if (route.kind === 'deleteTask') {
+        deletingTask = true;
+        if (url.search) fail(400, 'invalid_request');
+        const data = await readJson(request);
+        if (Object.keys(data).length !== 1 || !own(data, 'version') || !Number.isSafeInteger(data.version) ||
+            data.version < 1 || data.version >= 2147483647) fail(400, 'invalid_task_delete');
+        // The service-only RPC locks the row, checks the version and running
+        // timers, and retains history/media/backlinks in the same transaction.
+        const result = await store.rpc('cos_delete_task', {p_id: id, p_version: data.version});
+        if (result?.ok !== true || result.id !== id) fail(503, 'notes_unavailable');
+        return json({ok: true, id});
+      }
       if (route.kind === 'createTask') {
         creatingTask = true;
         if (url.search) fail(400, 'invalid_request');
@@ -272,20 +289,20 @@ export function createNotesHandler({store, now = () => new Date()}) {
         const link = links[0];
         if (!['quick', 'project'].includes(link.source_kind) || !UUID.test(link.source_id)) fail(503, 'notes_unavailable');
         const rows = await store.page(link.source_kind === 'quick' ? 'quick_notes' : 'project_notes',
-          `select=id,project_id&${eq('id', link.source_id)}&limit=1`, {timeoutMs: 8000});
+          `select=id,project_id&${eq('id', link.source_id)}&deleted_at=is.null&limit=1`, {timeoutMs: 8000});
         if (!rows.length) return json({source: null});
         return json({source: sourceView({kind: link.source_kind, id: rows[0].id, project_id: rows[0].project_id})});
       }
       if (method === 'GET') {
         if (id) {
           if (url.search) fail(400, 'invalid_request');
-          const rows = await store.page('quick_notes', `${eq('id', id)}&select=${NOTE_FIELDS.join(',')}&limit=1`, {timeoutMs: 8000});
+          const rows = await store.page('quick_notes', `${eq('id', id)}&deleted_at=is.null&select=${NOTE_FIELDS.join(',')}&limit=1`, {timeoutMs: 8000});
           if (!rows.length) fail(404, 'note_not_found');
           return json({note: noteView(rows[0])});
         }
         const {archived, limit, offset, projectId} = pagination(url);
         const query = new URLSearchParams({
-          select: NOTE_FIELDS.join(','), archived_at: archived ? 'not.is.null' : 'is.null',
+          select: NOTE_FIELDS.join(','), deleted_at: 'is.null', archived_at: archived ? 'not.is.null' : 'is.null',
           order: 'created_at.desc,id.desc', limit: String(limit + 1), offset: String(offset),
         });
         if (projectId !== undefined) query.set('project_id', projectId === null ? 'is.null' : 'eq.' + projectId);
@@ -294,19 +311,50 @@ export function createNotesHandler({store, now = () => new Date()}) {
       }
       if (url.search) fail(400, 'invalid_request');
       const data = await readJson(request);
+      if (method === 'DELETE') {
+        const projectNote = route.kind === 'projectNote';
+        const version = projectNote ? 'updated_at' : 'revision';
+        if (Object.keys(data).length !== 1 || !own(data, version) ||
+            (projectNote ? !validInstant(data.updated_at) : !Number.isSafeInteger(data.revision) || data.revision < 1 || data.revision >= 2147483647)) {
+          fail(400, projectNote ? 'invalid_request' : 'invalid_revision');
+        }
+        const table = projectNote ? 'project_notes' : 'quick_notes';
+        const timestamp = now().toISOString();
+        // Keep tombstones/backlinks and Telegram receipts. Old delivery/task
+        // request IDs remain bound to the original records after deletion.
+        const rows = await store.patch(table,
+          `${eq('id', id)}&${eq(version, data[version])}&deleted_at=is.null`,
+          {deleted_at: timestamp, archived_at: timestamp, ...(projectNote ? {pinned: false} : {})}, {timeoutMs: 8000});
+        if (rows.length === 1 && rows[0].id === id && rows[0].deleted_at) return json({deleted: true, id});
+        if (rows.length !== 0) fail(503, 'notes_unavailable');
+        const current = await store.page(table, `${eq('id', id)}&select=${projectNote ? 'id,deleted_at' : NOTE_FIELDS.join(',') + ',deleted_at'}&limit=1`, {timeoutMs: 8000});
+        // A repeated delete is safe even if its first response was lost.
+        if (current.length === 1 && current[0].deleted_at) return json({deleted: true, id});
+        if (!current.length) fail(404, 'note_not_found');
+        return json({error: projectNote ? 'project_note_conflict' : 'revision_conflict', ...(!projectNote ? {note: noteView(current[0])} : {})}, 409);
+      }
       const values = noteValues(data, method === 'POST', now().toISOString());
       if (method === 'POST') {
         const row = await store.insert('quick_notes', values, {timeoutMs: 8000});
         return json({note: noteView(row)}, 201);
       }
-      const rows = await store.patch('quick_notes', `${eq('id', id)}&${eq('revision', data.revision)}`, values, {timeoutMs: 8000});
+      const rows = await store.patch('quick_notes', `${eq('id', id)}&${eq('revision', data.revision)}&deleted_at=is.null`, values, {timeoutMs: 8000});
       if (rows.length === 1) return json({note: noteView(rows[0])});
       if (rows.length !== 0) fail(503, 'notes_unavailable');
-      const current = await store.page('quick_notes', `${eq('id', id)}&select=${NOTE_FIELDS.join(',')}&limit=1`, {timeoutMs: 8000});
+      const current = await store.page('quick_notes', `${eq('id', id)}&deleted_at=is.null&select=${NOTE_FIELDS.join(',')}&limit=1`, {timeoutMs: 8000});
       if (!current.length) fail(404, 'note_not_found');
       return json({error: 'revision_conflict', note: noteView(current[0])}, 409);
     } catch (error) {
       if (error instanceof NotesError) return json({error: error.code}, error.status);
+      if (deletingTask) {
+        const mappings = {
+          PT400: [400, 'invalid_task_delete'], PT404: [404, 'task_not_found'],
+          PT409: [409, 'task_version_conflict'], PT423: [409, 'task_timer_running'],
+          PT410: [409, 'task_deleted'],
+        };
+        const mapped = own(mappings, error?.code) ? mappings[error.code] : null;
+        return mapped ? json({error: mapped[1]}, mapped[0]) : json({error: 'notes_unavailable'}, 503);
+      }
       if (creatingTask && error?.code === 'PT404') return json({error: 'note_not_found'}, 404);
       if (creatingTask && error?.code === 'PT410') return json({error: 'source_archived'}, 409);
       if (creatingTask && error?.code === 'PT409') return json({error: 'task_request_conflict'}, 409);

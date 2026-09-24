@@ -36,7 +36,7 @@ test('global and project creation are local drafts; cancelling writes nothing',(
   assert.equal(app.S.taskDraft.description,'');assert.equal(app.S.taskDraft.area_key,'work');
   assert.equal(app.S.tasks.length,0);assert.equal(calls.length,0);app.closeTaskDrawer();
   assert.equal(app.S.taskDraft,null);assert.equal(app.S.task,null);
-  app.S.project={id:'project-1',area_key:'personal'};app.createProjectTask();
+  app.S.project={id:'project-1',area_key:'personal',status:'active'};app.S.projects=[app.S.project];app.createProjectTask();
   assert.equal(app.S.taskDraft.project_id,'project-1');assert.equal(app.S.taskDraft.area_key,'personal');
   app.closeTaskDrawer();assert.equal(calls.length,0);
 });
@@ -85,7 +85,7 @@ test('invalid time-only and reversed planned intervals are rejected before savin
   app.newGlobalTask();setForm({tdDesc:'Задача',tdDeadlineTime:'12:00'});await app.saveTask(app.S.task);assert.equal(calls.length,0);
 });
 test('draft controls cannot create relations, media or completion writes',async()=>{
-  const {app,calls}=fixture();app.S.project={id:'project-1',area_key:'work'};app.createProjectTask();
+  const {app,calls}=fixture();app.S.project={id:'project-1',area_key:'work',status:'active'};app.S.projects=[app.S.project];app.createProjectTask();
   const markup=app.taskDrawer(app.S.taskDraft);
   assert.match(markup,/placeholder="Что нужно сделать\?" required value=""/);
   for(const id of ['timerStart','timerStop','taskMediaInput','linkAdd','taskComplete'])assert.equal(markup.includes(`id="${id}"`),false,id);

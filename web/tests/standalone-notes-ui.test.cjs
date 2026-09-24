@@ -4,13 +4,14 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
+const projectHelpers=html.slice(html.indexOf('function activeProjects()'),html.indexOf('function areaTitle('));
 const source=html.slice(html.indexOf('// Standalone notes have their own'),html.indexOf('// Calendar owner session'));
 const id='11223344-5566-7788-9900-112233445566';
 const row=(overrides={})=>({id,title:'',plain_text:'Saved body',project_id:null,source:'telegram',created_at:'2026-09-22T10:00:00Z',updated_at:'2026-09-22T10:00:00Z',archived_at:null,revision:1,...overrides});
 function fixture(storage=new Map()){
  const elements=new Map([['#main',{innerHTML:''}]]),calls=[];let respond=async()=>({notes:[],nextOffset:null});
  const ctx=vm.createContext({appendNotesTaskDrawer(){},readNoteTaskBackup:()=>null,sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},Date,Intl,URL,AbortSignal,Map,Number,Error,JSON,String,Promise,console,location:new URL('https://chief-of-staff-v3-live.vercel.app/'),S:{section:'notes',project:null,projects:[]},$:selector=>elements.get(selector)||null,$$:()=>[],esc:s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])),projectName:()=> 'Project',toast(){},openCalendarSettings(){},fetch:async(url,options)=>{calls.push({url,...options});const value=await respond(url,options);return {ok:value.status?value.status<400:true,status:value.status||200,json:async()=>value.body||value}}});
- vm.runInContext(source+';globalThis.T={QN,quickNoteDraft,quickNoteChanged,syncQuickNoteInputs,quickNotesRequest,loadQuickNotes,saveQuickNote,flushQuickNote,archiveQuickNote,newQuickNote,initQuickNotesRoute,backupQuickNoteDraft,restoreQuickNoteBackup,page:quickNotesPage};quickNotesPage=()=>{}',ctx);
+ vm.runInContext(projectHelpers+source+';globalThis.T={QN,quickNoteDraft,quickNoteChanged,syncQuickNoteInputs,quickNotesRequest,loadQuickNotes,saveQuickNote,flushQuickNote,archiveQuickNote,newQuickNote,initQuickNotesRoute,backupQuickNoteDraft,restoreQuickNoteBackup,page:quickNotesPage};quickNotesPage=()=>{}',ctx);
  const T=ctx.T;T.QN.loaded=true;
  return {T,ctx,calls,elements,storage,respond(fn){respond=fn},fields(values={}){for(const [key,value]of Object.entries({Title:T.QN.draft?.title||'',Body:T.QN.draft?.plain_text||'',Project:T.QN.draft?.project_id||'',...values}))elements.set('#quickNote'+key,{value})},select(r){T.QN.rows=[r];T.QN.draft=T.quickNoteDraft(r)}};
 }

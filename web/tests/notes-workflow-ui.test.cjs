@@ -50,7 +50,7 @@ function fixture(exports) {
   vm.runInContext('api=publicStub;toast=toastStub;renderTaskContext=()=>{};render=()=>{};',context);
   const app=vm.runInContext(`({S,QN,${exports}})`,context);
   app.QN.loaded=true;
-  app.S.projects=[{id:PROJECT_ID,title:'Project one',area_key:'work'},{id:OTHER_PROJECT_ID,title:'Project two',area_key:'personal'}];
+  app.S.projects=[{id:PROJECT_ID,title:'Project one',area_key:'work',status:'active'},{id:OTHER_PROJECT_ID,title:'Project two',area_key:'personal',status:'active'}];
   app.S.areas=[{key:'work',title:'Work'},{key:'personal',title:'Personal'}];
   const taskForm=values=>{
     for(const [id,value] of Object.entries({tdDesc:'',tdDetails:'',tdProject:'',tdArea:'',tdStatus:'open',tdDirection:'internal',tdParticipant:'',tdPlanDate:'',tdPlanStartTime:'',tdPlanEndTime:'',tdDeadlineDate:'',tdDeadlineTime:'',tdCheckDate:'',tdCheckTime:'',tdEstimate:'',...values}))element('#'+id).value=value;
