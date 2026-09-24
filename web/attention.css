@@ -1,0 +1,39 @@
+/* Attention summaries stay quiet; only missed deadlines receive a red accent. */
+#todayAttention { display: block; }
+.attention-panel { background: var(--panel, #fff); border: 1px solid var(--line, #e5e9ef); border-radius: 12px; overflow: hidden; }
+.attention-head { padding: 20px 20px 15px; }
+.attention-head h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--ink, #273344); font-size: 15px; font-weight: 550; letter-spacing: -.015em; }
+.attention-head p { margin: 6px 0 0; color: var(--muted, #6d7888); font-size: 12px; line-height: 1.5; }
+.attention-count { min-width: 23px; padding: 2px 6px; border-radius: 6px; background: #f1f4f8; color: #65768a; font-size: 11px; text-align: center; font-weight: 500; }
+.attention-list { margin: 0; padding: 0; list-style: none; }
+.attention-item { display: flex; align-items: flex-start; gap: 10px; margin: 0 20px; padding: 16px 0; border-top: 1px solid #edf0f4; }
+.attention-mark { flex: 0 0 17px; height: 19px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; color: #75869a; font-size: 18px; font-weight: 400; }
+.attention-overdue .attention-mark { margin-top: 2px; height: 17px; border-radius: 50%; color: #a55a5d; background: #fbf0f0; font-size: 11px; }
+.attention-copy { min-width: 0; flex: 1; }
+.attention-title { display: block; max-width: 100%; border: 0; padding: 0; background: none; color: var(--ink, #273344); font: inherit; font-size: 13px; line-height: 1.5; font-weight: 500; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.attention-title:hover { color: var(--blue, #4d6f9c); }
+.attention-project { display: block; margin-top: 3px; color: #7b8695; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.attention-copy p { margin: 7px 0 0; color: #6d7888; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.attention-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 15px; margin-top: 9px; }
+.attention-action, .attention-defer { border: 0; padding: 2px 0; background: transparent; font: inherit; font-size: 11px; line-height: 1.6; text-align: left; cursor: pointer; }
+.attention-action { color: #4d6f9c; }
+.attention-action span { padding-left: 3px; }
+.attention-defer { color: #7b8695; }
+.attention-action:hover, .attention-defer:hover { text-decoration: underline; text-underline-offset: 3px; }
+.attention-show { display: block; width: calc(100% - 40px); margin: 0 20px; padding: 11px 0; border: 0; border-top: 1px solid #edf0f4; background: transparent; color: #607995; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.attention-show:hover { color: #365678; }
+.attention-empty { padding: 3px 20px 18px; color: #6d7888; font-size: 12px; line-height: 1.7; }
+.attention-footnote { margin: 0; padding: 12px 20px 16px; border-top: 1px solid #edf0f4; color: #7b8695; font-size: 10px; line-height: 1.6; }
+.attention-return { display: block; margin-top: 8px; color: #77869b; font-size: 11px; }
+.attention-deferred { background: #fafbfd; }
+.attention-deferred .attention-item:first-child { border-top: 0; }
+@media (max-width: 760px) {
+  .attention-head { padding: 17px 16px 13px; }
+  .attention-item { margin: 0 16px; padding: 14px 0; gap: 8px; }
+  .attention-title { font-size: 14px; }
+  .attention-actions { gap: 8px 16px; margin-top: 8px; }
+  .attention-action, .attention-defer { min-height: 36px; font-size: 12px; }
+  .attention-show { width: calc(100% - 32px); margin: 0 16px; min-height: 42px; }
+  .attention-footnote { padding: 11px 16px 14px; }
+  .attention-empty { padding: 3px 16px 17px; }
+}
