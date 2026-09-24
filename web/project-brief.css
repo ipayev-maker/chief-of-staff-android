@@ -16,6 +16,10 @@
 .pb-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pb-card { min-width: 0; padding: 20px; border: 1px solid var(--pb-line, #e7ecf2); border-radius: 11px; background: #fff; }
 .pb-state { background: #f8fafc; border-color: #dfe7f1; }
+.pb-summary-card { display: flex; flex-direction: column; align-items: stretch; text-align: left; font: inherit; cursor: pointer; }
+.pb-summary-card:hover:not(:disabled) { border-color: #bdcfe2; background: #f5f8fc; }
+.pb-summary-card:disabled { cursor: wait; }
+.pb-card-action { display: block; margin-top: auto; padding-top: 14px; color: #55769a; font-size: 11px; line-height: 1.6; }
 .pb-caption { color: #6e8096; font-size: 11px; font-weight: 500; }
 .pb-value { margin: 11px 0 0; color: #354357; font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pb-placeholder { margin: 11px 0 0; color: #97a2af; font-size: 14px; line-height: 1.75; }

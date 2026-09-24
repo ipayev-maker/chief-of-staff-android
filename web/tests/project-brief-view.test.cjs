@@ -15,11 +15,35 @@ function fixture(request, extra = {}, viewOptions = {}) {
   const document = { defaultView: { addEventListener: (name, callback) => listeners.set(name, callback), removeEventListener: (name, callback) => { if (listeners.get(name) === callback) listeners.delete(name); }, ...viewOptions } };
   const container = { ownerDocument: document, innerHTML: '', contains: () => true };
   const controller = brief.mount(container, { project: { id: PROJECT, title: 'Образцы' }, request, ...extra });
-  return { container, controller, listeners };
+  return { container, controller, listeners, document };
 }
-function click(container, action, id) {
-  const target = { dataset: { pbAction: action, pbId: id }, closest() { return this; } };
+function click(container, action, id, dataset = {}) {
+  const target = { dataset: { pbAction: action, pbId: id, ...dataset }, closest() { return this; } };
   container.onclick({ target });
+}
+function summaryCards(html) {
+  return html.match(/<button\b(?=[^>]*\bclass="[^"]*\bpb-summary-card\b)[^>]*>[\s\S]*?<\/button>/g) || [];
+}
+// Only the modal, form and field focus are modeled; browser layout is checked separately.
+function enableEditorDOM(f) {
+  const fields = new Map(['current_state', 'goal', 'next_step', 'checkpoint_label', 'checkpoint_on'].map(key => [key, {
+    dataset: { pbField: key }, value: '', focus() { f.document.activeElement = this; }
+  }]));
+  const form = {};
+  const dialog = {
+    innerHTML: '', open: false, setAttribute() {}, addEventListener() {},
+    contains: node => [...fields.values()].includes(node),
+    querySelector(selector) {
+      if (selector === 'form') return form;
+      const match = selector.match(/^\[data-pb-field="([a-z_]+)"\]$/);
+      return match ? fields.get(match[1]) || null : null;
+    },
+    querySelectorAll: selector => selector === '[data-pb-field]' ? [...fields.values()] : [],
+    showModal() { this.open = true; }, close() { this.open = false; }, remove() {}
+  };
+  f.document.createElement = tag => { assert.equal(tag, 'dialog'); return dialog; };
+  f.document.body = { appendChild: node => assert.equal(node, dialog) };
+  return { dialog, fields };
 }
 
 test('project overview includes only this project, deduplicates rows and excludes deleted/archived notes', () => {
@@ -211,4 +235,90 @@ test('unsaved draft can be resumed after failed login even if private GET is sti
   assert.match(container.innerHTML, /Личные уточнения доступны после входа/);
   assert.equal(controller.hasDraft(), false, 'cached draft must not block unrelated rerenders');
   controller.dispose();
+});
+
+test('all four summary cards are native edit buttons with their own target field', () => {
+  const state = snapshot({ current_state: 'Образец у заказчика' });
+  const cards = summaryCards(brief.renderOverview(model({}, state), { snapshot: state }));
+  assert.equal(cards.length, 4);
+  assert.deepEqual(cards.map(card => card.match(/data-pb-edit-field="([a-z_]+)"/)?.[1]), ['current_state', 'next_step', 'goal', 'checkpoint_label']);
+  for (const card of cards) {
+    assert.match(card, /type="button"/);
+    assert.match(card, /data-pb-action="edit-field"/);
+    assert.doesNotMatch(card, /\bdisabled\b/);
+  }
+  assert.match(cards[0], /Образец у заказчика/);
+});
+
+test('summary cards explain sign-in and cannot open an editor without a loaded snapshot or draft', async () => {
+  let logins = 0, requests = 0;
+  const f = fixture(async options => { requests++; assert.equal(options, undefined); throw Object.assign(Error('unauthorized'), { status: 401 }); }, { project: { id: '11111111-1111-4111-8111-111111111112', title: 'Без входа' }, onLogin: () => logins++ });
+  await flush();
+  const cards = summaryCards(f.container.innerHTML);
+  assert.equal(cards.length, 4);
+  for (const card of cards) {
+    assert.match(card, /data-pb-action="login"/);
+    assert.match(card, /Войти и заполнить/);
+    assert.doesNotMatch(card, /data-pb-action="edit-field"|\bdisabled\b/);
+  }
+  click(f.container, 'edit-field', undefined, { pbEditField: 'current_state' });
+  assert.equal(f.controller.hasDraft(), false);
+  click(f.container, 'login');
+  assert.equal(logins, 1);
+  assert.equal(requests, 1, 'card clicks must not write an invented empty snapshot');
+  f.controller.dispose();
+});
+
+test('summary cards are disabled while loading and offer an actual retry after a read failure', async () => {
+  let resolveFirst, calls = 0;
+  const projectId = '11111111-1111-4111-8111-111111111113';
+  const f = fixture(() => ++calls === 1 ? new Promise((resolve, reject) => { resolveFirst = reject; }) : Promise.resolve(snapshot({}, { project_id: projectId })), { project: { id: projectId, title: 'Повтор загрузки' } });
+  const loading = summaryCards(f.container.innerHTML);
+  assert.equal(loading.length, 4);
+  for (const card of loading) assert.match(card, /\bdisabled\b/);
+  resolveFirst(Error('Network unavailable')); await flush();
+  const failed = summaryCards(f.container.innerHTML);
+  assert.equal(failed.length, 4);
+  for (const card of failed) {
+    assert.match(card, /data-pb-action="reload"/);
+    assert.match(card, /Повторить загрузку/);
+  }
+  click(f.container, 'reload'); await flush();
+  assert.equal(calls, 2);
+  assert.equal(summaryCards(f.container.innerHTML).filter(card => card.includes('data-pb-action="edit-field"')).length, 4);
+  f.controller.dispose();
+});
+
+test('each summary card opens the editor and focuses the requested field without sending a save', async () => {
+  for (const [index, key] of ['current_state', 'next_step', 'goal', 'checkpoint_label', '__proto__', 'current_state"] [data-pb-field="goal'].entries()) {
+    const calls = [];
+    const projectId = `11111111-1111-4111-8111-11111111112${index}`;
+    const f = fixture(async options => { calls.push(options); return snapshot({}, { project_id: projectId }); }, { project: { id: projectId, title: 'Выбор поля' } });
+    const dom = enableEditorDOM(f);
+    await flush();
+    click(f.container, 'edit-field', undefined, { pbEditField: key });
+    assert.equal(dom.dialog.open, true, key);
+    assert.equal(f.document.activeElement, dom.fields.get(key) || dom.fields.get('current_state'), key);
+    assert.doesNotMatch(dom.dialog.innerHTML, /<fieldset\s+disabled/);
+    assert.deepEqual(calls, [undefined], 'opening a field is read-only until Save');
+    f.controller.dispose();
+  }
+});
+
+test('direct card access preserves a restored unconfirmed submission and its field lock', async () => {
+  const projectId = '11111111-1111-4111-8111-111111111114';
+  const session = brief.createSession(snapshot());
+  session.document.current_state = 'Образец передан заказчику';
+  const payload = brief.prepareSubmission(session, REQUEST);
+  let raw = brief.serializeSession(session, projectId), requests = 0;
+  const f = fixture(async options => { requests++; assert.equal(options, undefined); return snapshot({}, { project_id: projectId }); }, { project: { id: projectId, title: 'Повтор сохранения' } }, { sessionStorage: { getItem: () => raw, setItem: (key, value) => { raw = value; }, removeItem() {} } });
+  const dom = enableEditorDOM(f);
+  await flush();
+  click(f.container, 'edit-field', undefined, { pbEditField: 'current_state' });
+  assert.equal(dom.dialog.open, true);
+  assert.match(dom.dialog.innerHTML, /<fieldset\s+disabled/);
+  assert.match(dom.dialog.innerHTML, /Повторить сохранение/);
+  assert.equal(requests, 1);
+  assert.deepEqual(brief.parseStoredSession(raw, projectId).pending, payload);
+  f.controller.dispose();
 });
