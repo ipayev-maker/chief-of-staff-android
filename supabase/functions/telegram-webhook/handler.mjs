@@ -1,4 +1,5 @@
 // Telegram owner-only ingestion. Deno 2 / Node 24 Web APIs; injected I/O for tests.
+import {assignEntityDates} from './date-evidence.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP='https://chief-of-staff-v3-live.vercel.app/';
 const ok=()=>new Response('ok',{status:200,headers:{'Cache-Control':'no-store'}});
@@ -31,17 +32,17 @@ export function normalizeExtraction(value){
   if(value.project!==null&&value.project!==undefined){if(typeof value.project!=='object'||typeof value.project.title!=='string'||!value.project.title.trim())fail('invalid_extraction');project={title:value.project.title.trim(),description:typeof value.project.description==='string'?value.project.description:null}}
   return {project,commitments,events};
 }
-function validDay(value){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const date=new Date(value+'T12:00:00Z');return Number.isFinite(+date)&&date.toISOString().slice(0,10)===value;}
 function dayLabel(day){return new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'long',timeZone:'UTC'}).format(new Date(day+'T12:00:00Z'));}
-function entityReply(extracted,saved){
+function entityReply(extracted,saved,warningCount=0){
   const dir={to_me:'жду от другого',from_me:'мне сделать',internal:'моё действие'},lines=[];
   if(extracted.project?.title)lines.push('📁 Проект: '+extracted.project.title);
   for(const item of extracted.commitments)lines.push('📌 Задача: '+item.description+(item.deadline?' | 📅 '+dayLabel(item.deadline):'')+' | '+dir[item.direction]);
   for(const item of extracted.events)lines.push('📅 Событие: '+item.description+(item.date?' | 📅 '+dayLabel(item.date):''));
   const taskRows=(saved.commitment_ids||[]).filter(id=>UUID.test(id)).map(id=>[{text:'✅',callback_data:'done:'+id},{text:'⏸',callback_data:'pause:'+id},{text:'❌',callback_data:'cancel1:'+id}]);
-  return {text:('✅ Сохранено:\n\n'+lines.join('\n\n')).slice(0,3500),reply_markup:{inline_keyboard:[...taskRows,[{text:'✏️ Исправить всё',callback_data:'fix:'+saved.inbox_id},{text:'❌ Отменить всё',callback_data:'cancel:'+saved.inbox_id}]]}};
+  const warning=warningCount?`⚠️ Без даты: ${warningCount}. Срок не указан однозначно или не распознан. Уточните его в приложении.\n\n`:'';
+  return {text:('✅ Сохранено:\n\n'+warning+lines.join('\n\n')).slice(0,3500),reply_markup:{inline_keyboard:[...taskRows,[{text:'✏️ Исправить всё',callback_data:'fix:'+saved.inbox_id},{text:'❌ Отменить всё',callback_data:'cancel:'+saved.inbox_id}]]}};
 }
-export function createTelegramWebhook({loadConfig,store,extract,parseDates,sendTelegram}){
+export function createTelegramWebhook({loadConfig,store,extract,sendTelegram,now=()=>new Date()}){
   return async req=>{
     if(req.method!=='POST')return json('method_not_allowed',405);
     const secret=req.headers.get('X-Telegram-Bot-Api-Secret-Token');if(!secret)return json('unauthorized',401);
@@ -77,21 +78,21 @@ export function createTelegramWebhook({loadConfig,store,extract,parseDates,sendT
     try{
       const receipts=await store.list('cos_notes_telegram_receipts','select=result_json&chat_id=eq.'+config.telegramOwnerChatId+'&message_id=eq.'+message.message_id);
       if(receipts.length)return ok(); // No second classification or outbound reply.
-      const extracted=normalizeExtraction(await extract(text));
+      // Telegram may deliver a message after midnight or retry a failed delivery.
+      // Resolve relative dates from its original timestamp, never the retry day.
+      const sentAt=Number.isSafeInteger(message.date)&&message.date>0?new Date(message.date*1000):null;
+      const refDate=sentAt&&Number.isFinite(+sentAt)?sentAt.toISOString():now().toISOString();
+      const raw=await extract(text,{refDate});
+      const extracted=normalizeExtraction(raw);
       const kind=extracted.commitments.length||extracted.events.length?'entities':'note';
-      if(kind==='entities'){
-        const parsed=await parseDates(text);
-        if(!parsed||!Array.isArray(parsed.dates))fail('invalid_dates');
-        const deadline=parsed.dates[0]?.date??null;if(deadline!==null&&!validDay(deadline))fail('invalid_dates');
-        if(deadline){for(const item of extracted.commitments)item.deadline=deadline;for(const item of extracted.events)item.date=deadline}
-      }
+      const warningCount=kind==='entities'?assignEntityDates(extracted,raw,text,{refDate}):0;
       const saved=await store.rpc('cos_notes_ingest_telegram',{
         p_update_id:update.update_id,p_message_id:message.message_id,p_chat_id:message.chat.id,p_user_id:message.from.id,p_text:text,p_kind:kind,
         p_project:kind==='entities'?extracted.project:null,p_commitments:kind==='entities'?extracted.commitments:[],p_events:kind==='entities'?extracted.events:[],p_extracted:kind==='entities'?extracted:{}
       });
       if(saved?.duplicate)return ok(); // A concurrent first delivery won the SQL lock.
       if(saved?.kind!==kind||(kind==='note'?!UUID.test(saved.note_id||''):!UUID.test(saved.inbox_id||'')))fail('save_not_confirmed');
-      const reply=kind==='note'?{text:'📝 Сохранил заметку.\n\n'+APP+'?section=notes&id='+saved.note_id}:entityReply(extracted,saved);
+      const reply=kind==='note'?{text:'📝 Сохранил заметку.\n\n'+APP+'?section=notes&id='+saved.note_id}:entityReply(extracted,saved,warningCount);
       // Saving is durable before sending. A failed/uncertain reply is never
       // retried automatically, so it cannot duplicate tasks or owner messages.
       try{await sendTelegram('sendMessage',{chat_id:message.chat.id,...reply})}catch{}
