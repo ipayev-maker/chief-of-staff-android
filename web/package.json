@@ -1,9 +1,12 @@
 {
   "name": "chief-of-staff-web",
-  "version": "3.11.1",
+  "version": "3.11.2",
   "private": true,
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test tests/*.test.cjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.3.289"
   }
 }

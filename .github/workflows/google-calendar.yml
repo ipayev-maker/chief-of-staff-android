@@ -32,6 +32,9 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Install browser PDF renderer
+        working-directory: web
+        run: npm ci --ignore-scripts --omit=optional
       - name: Test application and integrations
         working-directory: web
         run: npm test
