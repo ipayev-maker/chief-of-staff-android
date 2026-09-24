@@ -128,7 +128,7 @@
     let today = localDay();
     if (!parseDay(state.selected)) state.selected = today;
     if (!parseDay(state.month)) state.month = state.selected.slice(0, 7) + '-01';
-    const projects = Array.isArray(options.projects) ? options.projects : [];
+    const projects = (Array.isArray(options.projects) ? options.projects : []).filter(project => project.status === 'active');
     if (state.projectId && state.projectId !== '__none__' && !projects.some(project => String(project.id) === state.projectId)) state.projectId = '';
     function draw(focusSelector) {
       today = localDay();
@@ -174,7 +174,7 @@
       const field = event.target.dataset.cvFilter;
       if (!['tasks', 'meetings', 'completed', 'projectId'].includes(field)) return;
       options.onViewChange?.();
-      state[field] = field === 'projectId' ? event.target.value : event.target.checked;
+      state[field] = field === 'projectId' ? (event.target.value === '__none__' || projects.some(project => String(project.id) === event.target.value) ? event.target.value : '') : event.target.checked;
       draw(`[data-cv-filter="${field}"]`);
     };
     container.onkeydown = event => {

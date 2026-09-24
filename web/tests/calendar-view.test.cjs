@@ -111,7 +111,7 @@ test('only explicit date, month and filter navigation invalidates a pending reco
 });
 
 test('project and kind filters apply to records and undated task counts', () => {
-  const sources = { tasks: [task('a', { project_id: 'p', deadline: '2026-09-23' }), task('b', { project_id: 'p' }), task('c'), task('d', { status: 'cancelled' })], meetings: [meeting('m', { project_id: 'p', starts_at: '2026-09-23T12:00:00Z' })], projects: [{ id: 'p', title: 'Проект' }] };
+  const sources = { tasks: [task('a', { project_id: 'p', deadline: '2026-09-23' }), task('b', { project_id: 'p' }), task('c'), task('d', { status: 'cancelled' })], meetings: [meeting('m', { project_id: 'p', starts_at: '2026-09-23T12:00:00Z' })], projects: [{ id: 'p', title: 'Проект', status: 'active' }] };
   const filtered = calendar.projectRecords(sources, { projectId: 'p' });
   assert.equal(filtered.records.length, 2);
   assert.equal(filtered.undatedTasks, 1);
@@ -159,7 +159,7 @@ test('selected-day agenda puts date-only deadlines before times and sorts times 
 test('render escapes source content and callbacks require explicit user actions', () => {
   const container = fakeContainer(), today = calendar.localDay(), calls = [];
   const title = '<img src=x onerror="alert(1)">';
-  calendar.render(container, { tasks: [task('unsafe"id', { description: title, deadline: today, project_id: 'p' })], projects: [{ id: 'p', title }], onOpenTask: id => calls.push(['open', id]), onCreateTask: day => calls.push(['create', day]), onConnect: () => calls.push(['connect']) });
+  calendar.render(container, { tasks: [task('unsafe"id', { description: title, deadline: today, project_id: 'p' })], projects: [{ id: 'p', title, status: 'active' }], onOpenTask: id => calls.push(['open', id]), onCreateTask: day => calls.push(['create', day]), onConnect: () => calls.push(['connect']) });
   assert.ok(!container.innerHTML.includes('<img'));
   assert.ok(container.innerHTML.includes('&lt;img'));
   assert.ok(container.innerHTML.includes('unsafe&quot;id'));
