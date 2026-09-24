@@ -1,3 +1,4 @@
+import {ProjectBriefError, getProjectBrief, saveProjectBrief} from './project-brief.mjs';
 import {APP_ORIGIN, sha256} from '../cos-google-calendar/google.mjs';
 
 const SESSION_COOKIE = '__Host-cos-calendar-session';
@@ -54,7 +55,9 @@ function resource(url) {
   if (!match) fail(404, 'not_found');
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
-  let parts = /^tasks\/([^/]+)\/source$/.exec(path);
+  let parts = /^projects\/([^/]+)\/brief$/.exec(path);
+  if (parts) return {kind: 'projectBrief', id: resourceUuid(parts[1]), methods: ['GET', 'PATCH']};
+  parts = /^tasks\/([^/]+)\/source$/.exec(path);
   if (parts) return {kind: 'taskSource', id: resourceUuid(parts[1]), methods: ['GET']};
   parts = /^tasks\/([^/]+)$/.exec(path);
   if (parts) return {kind: 'deleteTask', id: resourceUuid(parts[1]), methods: ['DELETE']};
@@ -258,6 +261,11 @@ export function createNotesHandler({store, now = () => new Date()}) {
       if (!route.methods.includes(method)) return json({error: 'method_not_allowed'}, 405);
       if (method !== 'GET' && request.headers.get('Origin') !== APP_ORIGIN) fail(403, 'invalid_origin');
       await authenticate(request);
+      if (route.kind === 'projectBrief') {
+        if (url.search) fail(400, 'invalid_request');
+        return json(method === 'GET' ? await getProjectBrief({store, projectId: id}) :
+          await saveProjectBrief({store, projectId: id, data: await readJson(request)}));
+      }
       if (route.kind === 'deleteTask') {
         deletingTask = true;
         if (url.search) fail(400, 'invalid_request');
@@ -345,6 +353,7 @@ export function createNotesHandler({store, now = () => new Date()}) {
       if (!current.length) fail(404, 'note_not_found');
       return json({error: 'revision_conflict', note: noteView(current[0])}, 409);
     } catch (error) {
+      if (error instanceof ProjectBriefError) return json({error: error.code}, error.status);
       if (error instanceof NotesError) return json({error: error.code}, error.status);
       if (deletingTask) {
         const mappings = {
