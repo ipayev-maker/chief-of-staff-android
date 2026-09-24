@@ -5,7 +5,7 @@
 .pdf-preview-count{min-width:64px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted,#65758b)}
 .pdf-preview-status{margin:0;text-align:center;font-size:13px;line-height:1.5;color:var(--muted,#65758b)}
 .pdf-preview-status[hidden],.pdf-preview-canvas[hidden]{display:none}
-.pdf-preview-viewport{width:100%;min-width:0;box-sizing:border-box;max-height:62vh;overflow:auto;padding:12px;background:#f1f4f8;border:1px solid var(--line,#dce4ed);border-radius:8px;overscroll-behavior:contain}
+.pdf-preview-viewport{width:100%;min-width:0;box-sizing:border-box;max-height:62vh;overflow:auto;scrollbar-gutter:stable;padding:12px;background:#f1f4f8;border:1px solid var(--line,#dce4ed);border-radius:8px;overscroll-behavior:contain}
 .pdf-preview-canvas{display:block;margin:0 auto;background:#fff;box-shadow:0 2px 9px #20334c17;max-width:none}
 .pdf-preview-viewport:focus-visible{outline:2px solid var(--blue,#326ad8);outline-offset:2px}
 @media(max-width:520px){.pdf-preview-toolbar{gap:5px}.pdf-preview-toolbar .btn{min-height:36px}.pdf-preview-count{min-width:56px}.pdf-preview-viewport{max-height:58vh}}
