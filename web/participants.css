@@ -1,0 +1,17 @@
+.participant-control {display:grid;gap:7px;margin-bottom:14px}
+.participant-control label {margin:0}
+.participant-actions {display:flex;gap:6px;flex-wrap:wrap}
+.participant-actions .btn {text-transform:none;letter-spacing:normal}
+.participant-hint {font-size:11px;color:var(--muted);line-height:1.45}
+.people-toolbar {display:flex;gap:12px;align-items:center;margin:0 0 18px;flex-wrap:wrap}
+.people-toolbar input {width:min(400px,100%);border:1px solid var(--line);padding:10px 12px;border-radius:9px;font:inherit;background:#fff}
+.people-list {display:grid;gap:9px;max-width:900px}
+.person-row {display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid var(--line);border-radius:10px;padding:16px;background:#fff}
+.person-row h2 {margin:0 0 5px;font-size:15px;font-weight:600;overflow-wrap:anywhere}
+.person-row p {margin:0;font-size:12px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
+.person-row .btn {flex-shrink:0}
+.participant-dialog .actions {display:flex;gap:8px;flex-wrap:wrap}
+.capture-draft .capture-participant {grid-column:2/-1;display:grid;gap:6px}
+.capture-participant label {font-size:12px;color:var(--muted)}
+.capture-participant select {margin-top:4px}
+@media(max-width:760px){.person-row{align-items:flex-start;gap:10px;padding:13px}.people-toolbar input{width:100%}.capture-draft .capture-participant{grid-column:2}.participant-dialog .actions .btn{flex:1}.sidebar nav{grid-template-columns:repeat(3,minmax(0,1fr))}}

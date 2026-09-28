@@ -8,7 +8,7 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
-for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js']) {
+for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
 // Same-origin PDF renderer and worker; private documents never go to an external viewer.
@@ -27,11 +27,17 @@ if (process.env.VERCEL_ENV === 'preview') {
   await writeFile(new URL('./dist/_project-brief-preview.html', import.meta.url), fixture);
   const layout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_project-brief-preview.html"');
   await writeFile(new URL('./dist/_project-brief-layout.html', import.meta.url), layout);
+  const workflowFixture = await readFile(new URL('./tests/workflow-preview-fixture.js', import.meta.url), 'utf8');
+  await writeFile(new URL('./dist/_workflow-preview.html', import.meta.url), html.replace(/\bboot\(\);(?=\s*<\/script>)/, () => workflowFixture));
+  const workflowLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_workflow-preview.html"');
+  await writeFile(new URL('./dist/_workflow-layout.html', import.meta.url), workflowLayout);
   const mediaFixture = await readFile(new URL('./tests/media-preview-fixture.js', import.meta.url), 'utf8');
   await writeFile(new URL('./dist/_media-preview.html', import.meta.url), html.replace(/\bboot\(\);(?=\s*<\/script>)/, () => mediaFixture));
   const mediaLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_media-preview.html"');
   await writeFile(new URL('./dist/_media-layout.html', import.meta.url), mediaLayout);
 } else {
+  await rm(new URL('./dist/_workflow-preview.html', import.meta.url), { force: true });
+  await rm(new URL('./dist/_workflow-layout.html', import.meta.url), { force: true });
   await rm(new URL('./dist/_media-preview.html', import.meta.url), { force: true });
   await rm(new URL('./dist/_media-layout.html', import.meta.url), { force: true });
   await rm(new URL('./dist/_project-brief-preview.html', import.meta.url), { force: true });
@@ -39,3 +45,4 @@ if (process.env.VERCEL_ENV === 'preview') {
   await rm(new URL('./dist/_layout-preview.html', import.meta.url), { force: true });
 }
 console.log(`Built ${fileURLToPath(source)} (${Buffer.byteLength(html)} bytes)`);
+
