@@ -19,9 +19,9 @@ function browser(url='https://example.test/?calendar=connected') {
     requestAnimationFrame:fn => {frames.set(++frameID, fn);return frameID;}, cancelAnimationFrame:id => frames.delete(id),
     scrollTo(){scrollCalls++;},
     history:{scrollRestoration:'auto', get state(){return entries[position].state;},
-      replaceState(state, title, target){entries[position] = {state, url:new URL(target, win.location).href};win.location = new URL(entries[position].url);},
-      pushState(state, title, target){entries.splice(position+1);entries.push({state, url:new URL(target, win.location).href});position++;win.location = new URL(entries[position].url);},
-      go(delta){const next=position+delta;if(next<0||next>=entries.length)return;position=next;win.location=new URL(entries[position].url);queueMicrotask(()=>listeners.get('popstate')?.({state:entries[position].state}));},
+      replaceState(state, title, target){entries[position] = {state, url:new URL(target, win.location).href};win.location.href = entries[position].url;},
+      pushState(state, title, target){entries.splice(position+1);entries.push({state, url:new URL(target, win.location).href});position++;win.location.href = entries[position].url;},
+      go(delta){const next=position+delta;if(next<0||next>=entries.length)return;position=next;win.location.href=entries[position].url;queueMicrotask(()=>listeners.get('popstate')?.({state:entries[position].state}));},
     },
   };
   const options={window:win, initialRoute:{section:'today'}, apply:async route=>{applied.push(route);return true;}};
@@ -106,7 +106,7 @@ test('reload keeps known history positions and calendar return context for a pro
   assert.equal(b.win.history.state.cosNavigation.index,1);assert.equal(second.getRoute().calendarReturn,true);assert.equal(second.getRoute().section,'calendar');assert.equal(b.entries.length,3);
 });
 
-function appFixture() {
+function appFixture({linkedNavigation=false}={}) {
   const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
   const source=html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/\bboot\(\);\s*$/,'');
   const elements=new Map(), events=[], messages=[];
@@ -114,12 +114,37 @@ function appFixture() {
     if(!elements.has(selector))elements.set(selector,{value:'',innerHTML:'',textContent:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];},focus(){},closest(){return null;}});
     return elements.get(selector);
   }
-  const context=vm.createContext({window:{addEventListener(){}},document:{querySelector:element,querySelectorAll:()=>[]},location:new URL('https://example.test/'),history:{replaceState(){}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},Date,Intl,URL,console,setTimeout(){},clearTimeout(){},setInterval(){},confirm:()=>false,crypto:{randomUUID:()=> 'uuid'},events,messages});
+  const browserState=linkedNavigation?browser('https://example.test/'):null;
+  const document={querySelector:element,querySelectorAll:()=>[]};
+  const win=browserState?.win||{addEventListener(){}};win.document=document;
+  const context=vm.createContext({window:win,document,location:win.location||new URL('https://example.test/'),history:win.history||{replaceState(){}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},Date,Intl,URL,console,setTimeout(){},clearTimeout(){},setInterval(){},confirm:()=>false,crypto:{randomUUID:()=> 'uuid'},events,messages});
+  if(linkedNavigation){
+    const tag=html.match(/<script\b([^>]*)\bsrc=["'](\/navigation\.js[^"']*)["']([^>]*)>\s*<\/script>/);
+    assert.ok(tag,'The actual application must load navigation.js, not merely define optional integration hooks.');
+    assert.ok(tag.index<html.indexOf('<script>'),'Navigation must be available before the inline application script.');
+    assert.doesNotMatch(tag[1]+tag[3],/\b(?:async|defer)\b/,'The startup helper is synchronously loaded.');
+    const pathname=new URL(tag[2],'https://example.test/').pathname;
+    vm.runInContext(fs.readFileSync(path.join(__dirname,'..',pathname),'utf8'),context,{filename:pathname});
+    assert.equal(typeof win.CoSNavigation?.create,'function');
+  }
   vm.runInContext(source,context);
-  vm.runInContext("toast=(message)=>messages.push(message);render=()=>events.push({section:S.section,project:S.project?.id,tab:S.tab});flushNote=async()=>{};flushQuickNote=async()=>{};",context);
+  vm.runInContext("toast=(message)=>messages.push(message);flushNote=async()=>{};flushQuickNote=async()=>{};",context);
+  if(!linkedNavigation)vm.runInContext("render=()=>events.push({section:S.section,project:S.project?.id,tab:S.tab});",context);
   const evaluate=code=>vm.runInContext(code,context);
-  return {element,evaluate,events,messages,context};
+  return {element,evaluate,events,messages,context,browserState};
 }
+
+test('actual HTML loads the helper before boot and the real application bridge supports Back and Forward', async()=>{
+  const f=appFixture({linkedNavigation:true});
+  f.evaluate("api=async()=>[];syncMeetingStatuses=async()=>{};checkMeetingReminders=()=>{};todayPage=()=>events.push('today');globalTasksPage=()=>events.push('tasks');participantsPage=()=>events.push('people');");
+  await f.evaluate('boot()');
+  assert.equal(f.browserState.win.location.hash,'#/today');assert.equal(f.evaluate('S.section'),'today');assert.equal(f.events.at(-1),'today');
+  await f.evaluate("navigateDashboardSection('tasks')");await f.evaluate("navigateDashboardSection('people')");
+  assert.equal(f.browserState.win.location.hash,'#/people');assert.equal(f.browserState.entries.length,4);
+  await f.browserState.back();assert.equal(f.evaluate('S.section'),'tasks');assert.equal(f.events.at(-1),'tasks');
+  await f.browserState.back();assert.equal(f.evaluate('S.section'),'today');assert.equal(f.events.at(-1),'today');
+  await f.browserState.forward();assert.equal(f.evaluate('S.section'),'tasks');assert.equal(f.events.at(-1),'tasks');assert.equal(f.browserState.entries.length,4);
+});
 
 test('actual app refuses to lose task edits and does not navigate during a task save', async () => {
   const f=appFixture();f.evaluate("S.tasks=[{id:'task-1',description:'Original',status:'open',direction:'internal'}];S.task='task-1';");

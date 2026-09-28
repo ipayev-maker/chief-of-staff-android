@@ -13,6 +13,5 @@ window.addEventListener('DOMContentLoaded', async () => {
     if(path.includes('/brief'))return{revision:0,document:{goal:'',current_state:'',next_step:'',checkpoint_label:'',checkpoint_on:null,entries:[]},history:[]};
     return{notes:[],nextOffset:null,source:null};
   };
-  loadProject=async()=>{S.notes=[];S.assets=[];S.links=[];S.layouts=[];S.minutes={}};
   const route=initDashboardNavigation();if(route)await applyDashboardRoute(route);else render();
 });
