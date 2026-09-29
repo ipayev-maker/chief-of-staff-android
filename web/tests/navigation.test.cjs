@@ -163,3 +163,17 @@ test('a failed note flush leaves the visible page and draft selected', async () 
   const f=appFixture();f.evaluate("S.section='notes';QN.draft={id:'note-1',title:'Keep'};flushQuickNote=async()=>{throw Error('not saved')};");
   assert.equal(await f.evaluate("navigateDashboardSection('calendar')"),false);assert.equal(f.evaluate('S.section'),'notes');assert.equal(f.evaluate('QN.draft.title'),'Keep');assert.deepEqual(f.messages,['not saved']);
 });
+
+
+test('inbox message deep links survive Back and Forward and reject malformed IDs', async () => {
+  const first='11111111-1111-4111-8111-111111111111', second='22222222-2222-4222-8222-222222222222';
+  const route=navigation.readRoute(new URL('https://example.test/#/inbox/'+first));
+  assert.equal(route.section,'inbox');assert.equal(route.inboxId,first);assert.equal(route.projectId,null);
+  assert.equal(navigation.readRoute({hash:'#/inbox/not-a-uuid'}),null);
+  assert.equal(navigation.routeURL(new URL('https://example.test/?calendar=connected'),route),'/?calendar=connected#/inbox/'+first);
+  const b=browser(), controller=navigation.create(b.options);
+  controller.record(route);controller.record({section:'inbox',inboxId:second});
+  await b.back();assert.equal(b.applied.at(-1).inboxId,first);
+  await b.forward();assert.equal(b.applied.at(-1).inboxId,second);
+  controller.record({section:'tasks',inboxId:second});assert.equal(controller.getRoute().inboxId,undefined);
+});

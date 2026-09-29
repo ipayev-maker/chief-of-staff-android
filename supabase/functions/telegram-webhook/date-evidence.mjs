@@ -1,5 +1,6 @@
 // Date-only deadlines from exact quotes, never from a rewritten task title.
-// Node 24 / Deno 2; no dependencies or I/O. The owner's business timezone is Moscow.
+// Node 24 / Deno 2; no dependencies or I/O. Legacy callers default to Moscow;
+// inbox callers pass the configured business timezone and original source time.
 const DAY=86_400_000;
 const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const weekdays=new Map([['понедельник',1],['вторник',2],['среду',3],['среда',3],['четверг',4],['пятницу',5],['пятница',5],['субботу',6],['суббота',6],['воскресенье',0],['понедельника',1],['вторника',2],['среды',3],['четверга',4],['пятницы',5],['субботы',6],['воскресенья',0]]);
@@ -8,7 +9,7 @@ export function validDay(value){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}
 const stamp=day=>Date.parse(day+'T12:00:00Z');
 const move=(day,days)=>new Date(stamp(day)+days*DAY).toISOString().slice(0,10);
 const dayString=(year,month,day)=>`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-function baseDay(refDate){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(refDate));}
+function baseDay(refDate,timeZone){return new Intl.DateTimeFormat('sv-SE',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(refDate));}
 function clean(value){return value.trim().toLowerCase().replaceAll('ё','е').replace(/[.,!?:;]+$/,'').replace(/^(?:(?:до|к|на|в|во)\s+)+/,'').trim();}
 export function hasDateHint(text){return /\d{1,4}[./-]\d{1,2}|\d{1,2}\s+(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/iu.test(text)||word('сегодня|завтра|послезавтра|вчера|позавчера|понедельник\\p{L}*|вторник\\p{L}*|сред[ау]|четверг\\p{L}*|пятниц\\p{L}*|суббот\\p{L}*|воскресень\\p{L}*|недел\\p{L}*|месяц\\p{L}*|срок\\p{L}*|через|назад',text);}
 function uncertain(text){return word('или|либо|примерно|ориентировочно|возможно|наверное|предположительно|между|раньше|позже|пока|когда-нибудь',text)||/\d\s*[-–—]\s*\d/u.test(text.replace(/\d{4}-\d{2}-\d{2}/g,''))||/(?:^|\s)с\s+.+\s+по\s+/iu.test(text);}
@@ -26,15 +27,15 @@ export function dateEvidence(row,text){
   return {quote:date,warning:false};
 }
 // Resolve supported syntax locally. An omitted year is accepted only when
-// the date has not passed this Moscow calendar year; otherwise ask for a year.
+// the date has not passed the reference calendar year; otherwise ask for a year.
 // Explicit past years and relative past dates are deliberately preserved.
-export function exactDay(quote,refDate){
-  const text=clean(quote),today=baseDay(refDate),year=Number(today.slice(0,4));let match,day;
+export function exactDay(quote,refDate,{timeZone='Europe/Moscow'}={}){
+  const text=clean(quote),today=baseDay(refDate,timeZone),year=Number(today.slice(0,4));let match,day;
   // Preserve the date portion of an explicit date + clock time. Times are not
   // invented as deadlines: the current ingestion schema stores a date only.
-  if((match=text.match(/^(.+?)\s+в\s+([0-2]?\d)(?::([0-5]\d))?(?:\s*час(?:а|ов)?)?$/))){return Number(match[2])<=23?exactDay(match[1],refDate):{known:true,day:null};}
+  if((match=text.match(/^(.+?)\s+в\s+([0-2]?\d)(?::([0-5]\d))?(?:\s*час(?:а|ов)?)?$/))){return Number(match[2])<=23?exactDay(match[1],refDate,{timeZone}):{known:true,day:null};}
   if(/^\d{1,2}:\d{2}$/.test(text))return {known:true,day:null};
-  if((match=text.match(/^(?:следующей\s+неделе\s+в\s+(.+)|(.+?)\s+(?:на\s+)?следующей\s+недел(?:е|и))$/))){return exactDay('следующий '+(match[1]||match[2]),refDate);}
+  if((match=text.match(/^(?:следующей\s+неделе\s+в\s+(.+)|(.+?)\s+(?:на\s+)?следующей\s+недел(?:е|и))$/))){return exactDay('следующий '+(match[1]||match[2]),refDate,{timeZone});}
   const relative={сегодня:0,завтра:1,послезавтра:2,вчера:-1,позавчера:-2};
   if(Object.hasOwn(relative,text))return {known:true,day:move(today,relative[text])};
   if(/^\d{4}-\d{2}-\d{2}$/.test(text))return {known:true,day:validDay(text)?text:null};

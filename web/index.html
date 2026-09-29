@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7f8fa"><title>Chief of Staff v3.12.0</title><style>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7f8fa"><title>Chief of Staff v3.13.0</title><style>
 :root{
   --bg:#f3f6fb;--panel:#ffffff;--panel2:#f8faff;--ink:#142033;--muted:#637086;--line:#d6deea;
   --blue:#3768e8;--blue2:#224dbb;--blueSoft:#edf2ff;--green:#16805b;--greenSoft:#e8f7f1;
@@ -60,14 +60,14 @@ body{font-size:15px}button,input,textarea,select{font:inherit;color:inherit}butt
 @media(max-width:760px){.sidebar{flex-wrap:wrap}.sidebar nav{order:4;flex:0 0 100%;margin:8px 0 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.sidebar nav button[data-sec]{width:100%;height:42px;min-height:42px;font-size:12px;padding:8px 3px}.sidebar nav button[data-sec]::after{content:none}.calendar-settings-trigger{margin-left:auto}.quick-notes-workspace{grid-template-columns:1fr}.quick-notes-list{border-right:0;border-bottom:1px solid var(--line);max-height:235px}.quick-note-editor{padding:14px}.quick-notes-page .head-actions{margin-top:12px}.quick-note-editor .title{font-size:21px}.quick-note-actions .btn{flex:1 1 auto}.quick-note-save-state{flex-basis:100%;margin-left:0}.task-drawer{top:115px}}
 
 .project-notes-tools{display:grid;gap:8px;margin-bottom:12px}.project-notes-tools .actions{display:flex;flex-wrap:wrap;gap:5px}.side-item .note-source{display:block;font-size:11px;color:var(--muted);margin-top:4px}#wb>.quick-notes-page{padding:0;max-width:none}#wb .quick-notes-workspace{border:0;border-radius:0}
-</style><link rel="stylesheet" href="/dashboard.css?v=3.12.0"><link rel="stylesheet" href="/date-picker.css?v=3.7.0"><script src="/date-picker.js?v=3.7.0" defer></script><link rel="stylesheet" href="/calendar-view.css?v=3.8.0"><script data-calendar-view src="/calendar-view.js?v=3.10.0" defer></script><link rel="stylesheet" href="/attention.css?v=3.9.0"><script data-attention src="/attention.js?v=3.9.0" defer></script><link rel="stylesheet" href="/project-brief.css?v=3.11.1"><script data-project-brief src="/project-brief.js?v=3.11.1" defer></script><link rel="stylesheet" href="/pdf-preview.css?v=3.11.2"><script src="/pdf-preview.js?v=3.11.2" defer></script><link rel="stylesheet" href="/participants.css?v=3.12.0"><script src="/participants.js?v=3.12.0" defer></script><script src="/navigation.js?v=3.12.0"></script></head><body><div class="app"><aside class="sidebar"><div class="brand"><span class="logo">C</span><div><b>Chief of Staff</b><small>рабочая среда</small></div></div><nav id="nav"><button class="active" data-sec="today"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18m-13 5h3"/></svg><span>Сегодня</span></button><button data-sec="tasks"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 9 1.5 1.5L12 8m2 2h2m-8 6h8"/></svg><span>Задачи</span></button><button data-sec="projects"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Проекты</span></button><button data-sec="notes" aria-label="Заметки"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8m-8 4h5"/></svg><span>Заметки</span></button><button data-sec="calendar"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h1m3 0h1m3 0h1m-9 3h1m3 0h1"/></svg><span>Календарь</span></button><button data-sec="people"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m3 10v-3a6 6 0 0 0-2-4"/></svg><span>Люди</span></button><button disabled>Inbox</button></nav><div class="spacer"></div><button id="calendarSettings" class="calendar-settings-trigger" type="button" aria-haspopup="dialog"><span aria-hidden="true">▦</span><span>Google Calendar</span></button><button id="nikBtn" class="nik" type="button">✦ <span><b>Никодим</b><small>ассистент</small></span></button></aside><main id="main"><div class="empty">Загружаю данные…</div></main></div><aside id="nikPanel" class="nik-panel"><header><div><span class="logo">✦</span><div><b>Никодим</b><small id="nikCtx">вся система</small></div></div><button id="nikClose" type="button">×</button></header><div class="nik-body"><p>Работаю по структуре Chief of Staff: задачи, сроки, ожидания и связи.</p><button type="button" data-q="overdue">Что просрочено?</button><button type="button" data-q="waiting">Что ждём от других?</button><button type="button" data-q="blocks">Что блокирует проект?</button><pre id="nikAnswer"></pre></div></aside><script>
+</style><link rel="stylesheet" href="/dashboard.css?v=3.12.0"><link rel="stylesheet" href="/date-picker.css?v=3.7.0"><script src="/date-picker.js?v=3.7.0" defer></script><link rel="stylesheet" href="/calendar-view.css?v=3.8.0"><script data-calendar-view src="/calendar-view.js?v=3.10.0" defer></script><link rel="stylesheet" href="/attention.css?v=3.9.0"><script data-attention src="/attention.js?v=3.9.0" defer></script><link rel="stylesheet" href="/project-brief.css?v=3.11.1"><script data-project-brief src="/project-brief.js?v=3.11.1" defer></script><link rel="stylesheet" href="/pdf-preview.css?v=3.11.2"><script src="/pdf-preview.js?v=3.11.2" defer></script><link rel="stylesheet" href="/participants.css?v=3.12.0"><script src="/participants.js?v=3.12.0" defer></script><script src="/navigation.js?v=3.13.0"></script><link rel="stylesheet" href="/inbox.css?v=3.13.0"><script data-inbox src="/inbox.js?v=3.13.0" defer></script></head><body><div class="app"><aside class="sidebar"><div class="brand"><span class="logo">C</span><div><b>Chief of Staff</b><small>рабочая среда</small></div></div><nav id="nav"><button class="active" data-sec="today"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18m-13 5h3"/></svg><span>Сегодня</span></button><button data-sec="inbox" aria-label="Входящие"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 4-2 10v6h20v-6L20 4Z"/><path d="M2 14h6l2 3h4l2-3h6M8 4h8"/></svg><span>Входящие</span></button><button data-sec="tasks"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 9 1.5 1.5L12 8m2 2h2m-8 6h8"/></svg><span>Задачи</span></button><button data-sec="projects"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Проекты</span></button><button data-sec="notes" aria-label="Заметки"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8m-8 4h5"/></svg><span>Заметки</span></button><button data-sec="calendar"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h1m3 0h1m3 0h1m-9 3h1m3 0h1"/></svg><span>Календарь</span></button><button data-sec="people"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m3 10v-3a6 6 0 0 0-2-4"/></svg><span>Люди</span></button></nav><div class="spacer"></div><button id="calendarSettings" class="calendar-settings-trigger" type="button" aria-haspopup="dialog"><span aria-hidden="true">▦</span><span>Google Calendar</span></button><button id="nikBtn" class="nik" type="button">✦ <span><b>Никодим</b><small>ассистент</small></span></button></aside><main id="main"><div class="empty">Загружаю данные…</div></main></div><aside id="nikPanel" class="nik-panel"><header><div><span class="logo">✦</span><div><b>Никодим</b><small id="nikCtx">вся система</small></div></div><button id="nikClose" type="button">×</button></header><div class="nik-body"><p>Работаю по структуре Chief of Staff: задачи, сроки, ожидания и связи.</p><button type="button" data-q="overdue">Что просрочено?</button><button type="button" data-q="waiting">Что ждём от других?</button><button type="button" data-q="blocks">Что блокирует проект?</button><pre id="nikAnswer"></pre></div></aside><script>
 const DIRECT='https://spabmyyxiufuzsaydrmx.supabase.co';
 const BASE='';
 const KEY='sb_publishable_CNZsixovw_VFqkJNusVKFw_EErlVgMI';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYWJteXl4aXVmdXpzYXlkcm14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODM0NTUsImV4cCI6MjEwMTU1OTQ1NX0.PyIB9co32csgjuvOvfVpxizWEA2JqBg107Qy-ydg37U';
-const BUILD='v3.12.0-navigation-participants-20260928';
+const BUILD='v3.13.0-communication-inbox-20260929';
 const S={
-  section:'today',projects:[],tasks:[],participants:[],areas:[],meetings:[],notes:[],assets:[],taskAssets:[],links:[],layouts:[],time:[],minutes:{},
+  section:'today',inboxId:null,projects:[],tasks:[],participants:[],areas:[],meetings:[],notes:[],assets:[],taskAssets:[],links:[],layouts:[],time:[],minutes:{},
   project:null,calendarReturn:false,tab:'overview',filter:'active',areaFilter:'all',task:null,taskDraft:null,taskSaveBusy:false,note:null,meeting:null,showCompleted:false,taskShowCompleted:false,showArchivedNotes:false,captureDrafts:[],captureBusy:false,captureMessage:'',linkMode:false,linkFrom:null,linkType:'blocks'
 };
 const $=(q,r=document)=>r.querySelector(q), $$=(q,r=document)=>[...r.querySelectorAll(q)];
@@ -322,8 +322,9 @@ function answerNik(q){
   $('#nikAnswer').textContent=text;
 }
 function render(){
-  if(projectBriefEditing())return;
+  if(projectBriefEditing()||inboxEditing())return;
   disposeProjectBrief();
+  if(S.section!=='inbox'||S.project)disposeInbox();
   recordDashboardRoute();
   $('#nikCtx').textContent=S.project?S.project.title:'вся система';
   if(S.project)return workspace();
@@ -332,11 +333,12 @@ function render(){
   if(S.section==='notes')return quickNotesPage();
   if(S.section==='calendar')return calendarPage();
   if(S.section==='people')return participantsPage();
+  if(S.section==='inbox')return inboxPage();
   return todayPage();
 }
 
 let dashboardNavigation=null,dashboardNavigationSequence=0;
-function dashboardRoute(){return{section:S.section,projectId:S.project?.id||null,tab:S.project?S.tab:'overview',calendarReturn:!!S.calendarReturn}}
+function dashboardRoute(){return{section:S.section,projectId:S.project?.id||null,tab:S.project?S.tab:'overview',calendarReturn:!!S.calendarReturn,...(S.section==='inbox'&&!S.project?{inboxId:S.inboxId||null}:{})}}
 function recordDashboardRoute(){dashboardNavigation?.record(dashboardRoute());$$('#nav [data-sec]').forEach(button=>button.classList.toggle('active',button.dataset.sec===(S.project?'projects':S.section)))}
 function taskNavigationChanged(){
   const task=taskById(S.task);if(!task||!$('#tdDesc')||noteTaskPinned(task))return false;
@@ -348,6 +350,7 @@ function taskNavigationChanged(){
 }
 async function prepareDashboardNavigation({fromHistory=false,onApproved}={}){
   if(S.taskSaveBusy||(!fromHistory&&dashboardNavigation?.isNavigating())||!canLeaveProjectBrief())return false;
+  if(inboxController&&!await inboxController.canLeave())return false;
   if(taskNavigationChanged()&&!confirm('В задаче есть несохранённые изменения. Перейти на другую страницу без сохранения?'))return false;
   onApproved?.();
   try{await flushNote();await flushQuickNote()}catch(error){toast(error.message,'error');return false}
@@ -362,7 +365,8 @@ async function navigateDashboardSection(section){
 async function applyDashboardRoute(route){
   projectOpenSequence++;taskOpenSequence++;calendarNavigationSequence++;
   if(route.projectId){if(!S.projects.some(project=>project.id===route.projectId))return false;return openProject(route.projectId,{skipNavigationGuard:true,tab:route.tab,section:route.section,calendarReturn:route.calendarReturn})}
-  S.calendarReturn=false;S.section=route.section;S.project=null;S.task=null;S.meeting=null;S.note=null;S.tab='overview';clearNotesRoute();setQuickNotesScope(null);render();if(S.section==='notes')loadQuickNotes().catch(()=>{});return true;
+  disposeInbox();
+  S.calendarReturn=false;S.section=route.section;S.inboxId=route.section==='inbox'?route.inboxId||null:null;S.project=null;S.task=null;S.meeting=null;S.note=null;S.tab='overview';clearNotesRoute();setQuickNotesScope(null);render();if(S.section==='notes')loadQuickNotes().catch(()=>{});return true;
 }
 function initDashboardNavigation(){
   if(!window.CoSNavigation)return null;
@@ -372,6 +376,30 @@ function initDashboardNavigation(){
   if(route.projectId&&!S.projects.some(project=>project.id===route.projectId))route={section:'projects',projectId:null,tab:'overview'};
   dashboardNavigation=window.CoSNavigation.create({window,initialRoute:route,onStart:()=>{dashboardNavigationSequence++},canLeave:()=>prepareDashboardNavigation({fromHistory:true,onApproved:()=>{projectOpenSequence++;taskOpenSequence++;calendarNavigationSequence++}}),apply:applyDashboardRoute,onError:error=>toast(error.message||'Не удалось открыть страницу.','error')});
   return route;
+}
+
+
+let inboxController=null;
+function inboxEditing(){return !!(inboxController&&S.section==='inbox'&&!S.project&&(inboxController.hasDraft()||inboxController.isBusy()))}
+function disposeInbox(){inboxController?.dispose();inboxController=null}
+function inboxPage(){
+  if(inboxController){inboxController.select(S.inboxId);return}
+  $('#main').innerHTML='<div id="communicationInbox"></div>';
+  const container=$('#communicationInbox');
+  if(!window.CoSInbox){
+    container.innerHTML='<section class="page"><header class="head"><h1>Входящие</h1></header><p>Загружаю сообщения…</p></section>';
+    $('script[data-inbox]')?.addEventListener('load',()=>{if(S.section==='inbox'&&!S.project)inboxPage()},{once:true});return;
+  }
+  inboxController=window.CoSInbox.mount(container,{
+    request:quickNotesRequest,projects:S.projects,participants:S.participants,tasks:S.tasks,selectedId:S.inboxId,
+    onSelect:id=>{if(S.section==='inbox'&&!S.project){S.inboxId=id||null;recordDashboardRoute()}},
+    onLogin:()=>openCalendarSettings(),
+    onChanged:async()=>{
+      QN.loaded=false;
+      try{const tasks=await api(R('commitments','select=id,project_id,participant_id,area_key,description,details,direction,status,deadline,planned_on,next_check_on,planned_start_at,planned_end_at,deadline_at,next_check_at,estimate_minutes,cos_version,created_at,updated_at&status=in.(open,paused,completed,cancelled)&deleted_at=is.null'));if(Array.isArray(tasks)){S.tasks.splice(0,S.tasks.length,...tasks)}}
+      catch{toast('Изменения применены. Обновите страницу, чтобы увидеть свежие задачи.','error')}
+    }
+  });
 }
 
 let calendarNavigationSequence=0;
@@ -930,7 +958,7 @@ function quickNoteChanged(){const d=QN.draft;if(!d)return false;const row=QN.row
 function syncQuickNoteInputs(){const d=QN.draft;if(!d||d.archived_at)return;const title=$('#quickNoteTitle'),body=$('#quickNoteBody'),project=$('#quickNoteProject');if(title&&body){d.title=title.value.trim();d.plain_text=body.value;if(project)d.project_id=project.value||null}const status=$('#quickNoteSaveState');if(status)status.textContent=quickNoteChanged()?'Изменено':'Сохранено';backupQuickNoteDraft()}
 function quickNoteError(code){return({project_note_conflict:'Заметка изменена в другом окне. Обновите проект перед удалением; ваш текст остался в редакторе.',source_archived:'Заметка в архиве. Восстановите её, чтобы создать задачу. Черновик задачи сохранён.',task_request_conflict:'Запрос создания задачи конфликтует с ранее отправленным. Проверьте созданные задачи.',invalid_task:'Проверьте текст задачи, сроки и оценку времени.',unauthorized:'Войдите в аккаунт, чтобы открыть заметки.',revision_conflict:'Заметка изменена в другом окне. Ваш текст остался в редакторе. Чтобы загрузить актуальную версию, нажмите «Отменить изменения».',note_not_found:'Заметка не найдена. Обновите список.',invalid_note:'Добавьте текст заметки. Заголовок — до 300 символов, текст — до 64 000.',invalid_request:'Не удалось сохранить данные заметки. Проверьте заполненные поля.',request_too_large:'Заметка слишком большая. Сократите текст.'})[code]||'Не удалось выполнить действие с заметкой. Попробуйте обновить список.'}
 async function quickNotesRequest(path='',options={}){
-  let response;try{response=await fetch('/api/notes'+path,{method:options.method||'GET',credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json',...(options.body?{'Content-Type':'application/json'}:{})},...(options.body?{body:JSON.stringify(options.body)}:{}),signal:AbortSignal.timeout(30000)})}
+  let response;try{response=await fetch('/api/notes'+path,{method:options.method||'GET',credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json',...(options.body?{'Content-Type':'application/json'}:{})},...(options.body?{body:JSON.stringify(options.body)}:{}),signal:AbortSignal.timeout(/^\/inbox\/[^/]+\/analyze$/.test(path)?90000:30000)})}
   catch{const error=Error(options.method?'Сохранение не подтверждено. Обновите список и проверьте результат перед повтором.':'Не удалось загрузить заметки. Проверьте соединение и обновите список.');error.uncertain=!!options.method;throw error}
   let data;try{data=await response.json()}catch{const error=Error('Сервер вернул неожиданный ответ. Обновите список, чтобы проверить результат.');error.uncertain=!!options.method;throw error}
   if(!response.ok){const error=Error(quickNoteError(data?.error));error.code=data?.error;error.note=data?.note;error.participant=data?.participant;error.status=response.status;error.uncertain=!!options.method&&(response.status>=500||response.status===408);throw error}return data;
@@ -1046,7 +1074,7 @@ function initCalendarSettings(){
 
 setInterval(updateLiveTimers,1000);
 setInterval(()=>{syncMeetingStatuses().catch(()=>{});checkMeetingReminders().catch(()=>{})},60000);
-window.addEventListener('beforeunload',event=>{if((QN.draft&&quickNoteChanged()&&!QN.backupAvailable)||(S.taskDraft?._noteSource&&!S.taskDraft._backupAvailable)){event.preventDefault();event.returnValue=''}});
+window.addEventListener('beforeunload',event=>{if(inboxEditing()||(QN.draft&&quickNoteChanged()&&!QN.backupAvailable)||(S.taskDraft?._noteSource&&!S.taskDraft._backupAvailable)){event.preventDefault();event.returnValue=''}});
 initQuickNotesRoute();
 initCalendarSettings();
 boot();
