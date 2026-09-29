@@ -37,8 +37,8 @@ async function fixture() {
   };
   let clock=TIME;
   const handler=createHandler({store,google,config,now:()=>clock,runSync:async()=>{calls.sync++;return {errors:0,conflicts:0};}});
-  async function begin() {
-    const response=await handler(new Request(BASE+'start',{method:'POST',headers:{Origin:ORIGIN},body:new URLSearchParams({time_zone:'Europe/Berlin'})}));
+  async function begin(fields={}) {
+    const response=await handler(new Request(BASE+'start',{method:'POST',headers:{Origin:ORIGIN},body:new URLSearchParams({time_zone:'Europe/Berlin',...fields})}));
     assert.equal(response.status,303);
     const state=new URL(response.headers.get('Location')).searchParams.get('state');
     const flow=response.headers.getSetCookie()[0].split(';')[0];
@@ -132,4 +132,66 @@ test('explicit rejected calendar creation permits retry after configuration is f
   f.google.calendar=()=>({request:async()=>{throw Object.assign(Error('forbidden'),{status:403});}});
   await f.finish(await f.begin());assert.equal(f.table('cos_calendar_connection')[0].status,'needs_reconnect');
   f.google.calendar=normal;await f.connect();assert.equal(f.calls.calendar,1);
+});
+
+test('owner sign-in returns to the requested inbox card using its one-use state',async()=>{
+  for(const returnTo of ['/#/inbox','/#/inbox/27645866-3A65-4DE8-B30A-D0435907BEF1']){
+    const f=await fixture();const flow=await f.begin({return_to:returnTo});
+    assert.equal(f.table('cos_calendar_oauth_states')[0].return_to,returnTo.toLowerCase());
+    const response=await f.finish(flow),url=new URL(response.headers.get('Location'));
+    assert.equal(url.origin,ORIGIN);assert.equal(url.pathname,'/');
+    assert.equal(url.searchParams.get('calendar'),'connected');
+    assert.equal(url.hash,returnTo.slice(1).toLowerCase());
+    assert.ok(response.headers.getSetCookie().some(cookie=>cookie.startsWith('__Host-cos-calendar-session=')));
+    assert.equal(f.table('cos_calendar_oauth_states').length,0);
+  }
+});
+
+test('invalid return destinations are rejected before any state is written',async()=>{
+  const invalid=['https://evil.example/#/inbox','//evil.example/#/inbox','/#/projects','/#/inbox/invalid','/#/inbox?next=https://evil.example','/%23/inbox','/#/inbox/../../evil','/#/inbox\r\nLocation: https://evil.example','/#/inbox\n','/#/inbox\r','/#/inbox/27645866-3a65-4de8-b30a-d0435907bef1\n','/#/inbox/27645866-3a65-4de8-b30a-d0435907bef1/extra'];
+  for(const returnTo of invalid){
+    const f=await fixture();
+    const response=await f.handler(new Request(BASE+'start',{method:'POST',headers:{Origin:ORIGIN},body:new URLSearchParams({time_zone:'Europe/Berlin',return_to:returnTo})}));
+    assert.equal(response.status,400,returnTo);assert.deepEqual(await response.json(),{error:'invalid_return_to'});
+    assert.equal(f.data.size,0,'no OAuth/database state for '+returnTo);
+  }
+});
+
+test('valid owner flow keeps the inbox return on denial and provider failure',async()=>{
+  const returnTo='/#/inbox/27645866-3a65-4de8-b30a-d0435907bef1';
+  for(const failure of ['denied','provider']){
+    const f=await fixture(),flow=await f.begin({return_to:returnTo});
+    if(failure==='provider')f.google.exchangeCode=async()=>{throw Error('sensitive-provider-error');};
+    const request=new Request(BASE+'callback?state='+flow.state+(failure==='denied'?'&error=access_denied':'&code=synthetic-code'),{headers:{Cookie:flow.flow}});
+    const response=await f.handler(request),url=new URL(response.headers.get('Location'));
+    assert.equal(url.hash,returnTo.slice(1));assert.equal(url.searchParams.get('calendar'),'error');
+    assert.equal(url.searchParams.get('reason'),failure==='denied'?'denied':'oauth_failed');
+    assert.ok(!response.headers.getSetCookie().some(cookie=>cookie.startsWith('__Host-cos-calendar-session=')));
+  }
+});
+
+test('callback return parameters cannot replace the state-bound inbox route',async()=>{
+  const f=await fixture(),flow=await f.begin({return_to:'/#/inbox'});
+  const response=await f.handler(new Request(BASE+'callback?state='+flow.state+'&code=synthetic-code&return_to='+encodeURIComponent('https://evil.example/'),{headers:{Cookie:flow.flow}}));
+  assert.equal(response.headers.get('Location'),ORIGIN+'/?calendar=connected#/inbox');
+});
+
+test('wrong browser and replay cannot recover an inbox destination or create a session',async()=>{
+  const f=await fixture(),flow=await f.begin({return_to:'/#/inbox/27645866-3a65-4de8-b30a-d0435907bef1'});
+  const wrong=await f.handler(new Request(BASE+'callback?state='+flow.state+'&code=synthetic-code',{headers:{Cookie:'__Host-cos-calendar-flow=wrong-browser'}}));
+  assert.equal(wrong.headers.get('Location'),ORIGIN+'/?calendar=error&reason=invalid_state');
+  assert.equal(f.calls.exchange,0);assert.equal(f.table('cos_calendar_sessions').length,0);
+  await f.finish(flow);const replay=await f.finish(flow);
+  assert.equal(replay.headers.get('Location'),ORIGIN+'/?calendar=error&reason=invalid_state');
+  assert.equal(f.calls.exchange,1);assert.equal(f.table('cos_calendar_sessions').length,1);
+});
+
+test('absent, legacy or invalid stored return routes retain ordinary calendar redirects',async()=>{
+  for(const stored of [null,undefined,'https://evil.example/','/#/inbox/bad']){
+    const f=await fixture(),flow=await f.begin();
+    const row=f.table('cos_calendar_oauth_states')[0];
+    if(stored===undefined)delete row.return_to;else row.return_to=stored;
+    const response=await f.finish(flow);
+    assert.equal(response.headers.get('Location'),ORIGIN+'/?calendar=connected');
+  }
 });

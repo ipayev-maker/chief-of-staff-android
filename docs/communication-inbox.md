@@ -57,3 +57,23 @@ processing service with strict synthetic validation of these database columns.
 Voice failures persist bounded stage/status codes, never provider bodies or
 credential-bearing URLs. Telegram `getFile` paths are validated as safe relative
 paths without assuming a `voice/` directory. Provider and model remain unchanged.
+
+## Opening cards and resolving participants
+
+Telegram links must work both on a cold load and when the browser reuses an
+existing dashboard tab. Hash navigation runs the same unsaved-change guard as
+in-app navigation. On mobile, the selected card is displayed before the list.
+
+The inbox login form supplies the browser timezone and an inbox-only return
+target. The OAuth state stores that target, bound to the existing browser/state
+checks. Successful sign-in returns to the card without a calendar settings
+dialog. Drafts remain in their original tab when reauthentication is needed.
+Apply `calendar-oauth-return.sql` before deploying the calendar handler update.
+For the calendar Edge Function deployment, package its six modules at the bundle
+root (`index.ts`, `handler.mjs`, `store.mjs`, `google.mjs`, `sync.mjs`,
+`projector.mjs`) and rewrite only the handler's projector import to
+`./projector.mjs`; nested archive packaging returned a provider internal error.
+
+An unresolved participant can be created from the proposal. Creating the person
+uses the existing owner-only participants API and a stable client UUID for retry;
+an existing name requires explicit selection. This does not apply the proposal.

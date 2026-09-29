@@ -173,7 +173,9 @@ test('unauthorized initial load renders sign in without revealing cached message
   const f=fixture(async()=>{throw Object.assign(Error('unauthorized'),{status:401});});
   await flush();
   assert.match(f.container.innerHTML,/Войдите, чтобы открыть входящие/);
-  assert.match(f.container.innerHTML,/method="post" target="_blank" rel="noopener"/);
+  assert.match(f.container.innerHTML,/method="post"><input type="hidden" name="time_zone"/);
+  assert.doesNotMatch(f.container.innerHTML,/target="_blank"/);
+  assert.match(f.container.innerHTML,/name="return_to" value="\/#\/inbox"/);
   assert.doesNotMatch(f.container.innerHTML,/Получить чертёж/);
   f.controller.dispose();
 });
@@ -216,5 +218,137 @@ test('defer of failed transcription omits nonexistent analysis instead of submit
   const f=fixture(async(path,opt)=>path.startsWith('/inbox?')?{items:[row]}:path.endsWith('/defer')?(body=opt.body,{item:{...row,status:'deferred',revision:3}}):{item:row});
   await flush();await click(f,'select',{ciId:ID});await click(f,'defer');
   assert.deepEqual(body,{revision:2,request_id:REQUEST});
+  f.controller.dispose();
+});
+
+test('cold deep-link login posts valid zone and returns to the selected inbox card in the same tab',async()=>{
+  const f=fixture(async()=>{throw Object.assign(Error('unauthorized'),{status:401});},{selectedId:ID,timeZone:'Europe/Moscow'});
+  await flush();
+  assert.match(f.container.innerHTML,/name="time_zone" value="Europe\/Moscow"/);
+  assert.match(f.container.innerHTML,new RegExp(`name="return_to" value="/#/inbox/${ID}"`));
+  assert.doesNotMatch(f.container.innerHTML,/target="_blank"/);
+  f.controller.dispose();
+  const html=inbox.renderInbox({authRequired:true,selectedId:'https://evil.test',items:[]},{timeZone:'bad zone'});
+  assert.match(html,/name="time_zone" value="UTC"/);
+  assert.match(html,/name="return_to" value="\/#\/inbox"/);
+  assert.doesNotMatch(html,/evil/);
+});
+test('401 while refreshing hides private content and preserves edits through reauthentication',async()=>{
+  let unauthorized=false;
+  const f=fixture(async path=>{
+    if(unauthorized)throw Object.assign(Error('unauthorized'),{status:401});
+    return path.startsWith('/inbox?')?{items:[item()]}:{item:item()};
+  },{selectedId:ID});
+  await flush();await click(f,'edit');input(f,'text','Правки до входа');
+  unauthorized=true;await click(f,'reload');
+  assert.match(f.container.innerHTML,/target="_blank" rel="noopener"/);
+  assert.match(f.container.innerHTML,/Правки сохранены в этой вкладке/);
+  assert.doesNotMatch(f.container.innerHTML,/Правки до входа|Получить чертёж/);
+  assert.equal(f.controller.hasDraft(),true);
+  unauthorized=false;await click(f,'reload');
+  assert.match(f.container.innerHTML,/Правки до входа/);
+  assert.match(f.container.innerHTML,/ci-layout ci-has-selection/);
+  assert.doesNotMatch(f.container.innerHTML,/Войдите, чтобы открыть входящие/);
+  f.controller.dispose();
+});
+test('deep-linked selected card loads without a separate list click',async()=>{
+  const requests=[];
+  const f=fixture(async path=>{requests.push(path);return path.startsWith('/inbox?')?{items:[]}:{item:item()};},{selectedId:ID});
+  await flush();
+  assert.ok(requests.includes(`/inbox/${ID}`));
+  assert.match(f.container.innerHTML,/Проверить предложения/);
+  assert.match(f.container.innerHTML,/ci-layout ci-has-selection/);
+  f.controller.dispose();
+});
+test('unresolved participant exposes add directly, and creating one selects it without losing proposal edits',async()=>{
+  const people=structuredClone(options.participants),calls=[];
+  const row=item({proposal:{version:1,questions:['Сергей — новый участник?'],changes:[change({participant_id:null})]}});
+  const f=fixture(async(path,opt)=>{
+    if(path.startsWith('/inbox?'))return{items:[row]};
+    if(path===`/inbox/${ID}`)return{item:row};
+    calls.push({path,opt});return{participant:{...opt.body,created_at:'2026-09-30T00:00:00Z'}};
+  },{selectedId:ID,participants:people});
+  await flush();
+  assert.match(f.container.innerHTML,/Добавить участника/);
+  await click(f,'participant-new',{ciChange:CHANGE});
+  assert.match(f.container.innerHTML,/data-ci-field="participant_name" value=""/);
+  input(f,'text','Моя правка задачи');input(f,'participant_name','  Сергей   Петров  ');
+  await click(f,'apply');assert.equal(calls.length,0);
+  await click(f,'participant-save');
+  assert.deepEqual(calls[0],{path:'/participants',opt:{method:'POST',body:{id:REQUEST,name:'Сергей Петров'}}});
+  assert.equal(people.find(p=>p.id===REQUEST).name,'Сергей Петров');
+  assert.match(f.container.innerHTML,new RegExp(`<option value="${REQUEST}" selected>Сергей Петров`));
+  assert.match(f.container.innerHTML,/Моя правка задачи/);
+  assert.doesNotMatch(f.container.innerHTML,/data-ci-field="participant_name"/);
+  assert.equal(f.controller.hasDraft(),true);
+  f.controller.dispose();
+});
+test('uncertain participant create retries identical UUID and normalized name; no duplicate or apply while busy',async()=>{
+  const bodies=[];let settle;
+  const f=await selectedFixture(async(path,opt)=>{
+    assert.equal(path,'/participants');bodies.push(opt.body);
+    if(bodies.length===1)return new Promise((resolve,reject)=>{settle=()=>reject(Object.assign(Error('lost response'),{uncertain:true}));});
+    return{participant:opt.body,replayed:true};
+  },{participants:structuredClone(options.participants)});
+  await click(f,'participant-new',{ciChange:CHANGE});input(f,'participant_name','Сергей');
+  const first=click(f,'participant-save');
+  assert.equal(f.controller.isBusy(),true);
+  await click(f,'participant-save');await click(f,'apply');assert.equal(bodies.length,1);
+  settle();await first;
+  assert.match(f.container.innerHTML,/Проверить сохранение/);
+  input(f,'participant_name','Другое имя');
+  await click(f,'participant-save');
+  assert.deepEqual(bodies,[{id:REQUEST,name:'Сергей'},{id:REQUEST,name:'Сергей'}]);
+  assert.match(f.container.innerHTML,new RegExp(`<option value="${REQUEST}" selected>Сергей`));
+  f.controller.dispose();
+});
+test('existing name requires explicit selection and never silently merges participants',async()=>{
+  let writes=0;
+  const f=await selectedFixture(async()=>{writes++;},{participants:structuredClone(options.participants)});
+  await click(f,'participant-new',{ciChange:CHANGE});input(f,'participant_name',' АННА ');
+  await click(f,'participant-save');
+  assert.equal(writes,0);
+  assert.match(f.container.innerHTML,/Выбрать существующего: Анна/);
+  assert.match(f.container.innerHTML,/data-ci-field="participant_name"/);
+  await click(f,'participant-existing');
+  assert.doesNotMatch(f.container.innerHTML,/data-ci-field="participant_name"/);
+  assert.match(f.container.innerHTML,new RegExp(`<option value="${PERSON}" selected>Анна`));
+  f.controller.dispose();
+});
+test('server duplicate not present in cached options can be explicitly selected',async()=>{
+  const people=structuredClone(options.participants);
+  const f=await selectedFixture(async()=>{throw Object.assign(Error('exists'),{status:409,code:'participant_exists',participant:{id:OTHER,name:'Сергей'}});},{participants:people});
+  await click(f,'participant-new',{ciChange:CHANGE});input(f,'participant_name','Сергей');
+  await click(f,'participant-save');
+  assert.equal(people.some(p=>p.id===OTHER),false);
+  assert.match(f.container.innerHTML,/Выбрать существующего: Сергей/);
+  await click(f,'participant-existing');
+  assert.equal(people.find(p=>p.id===OTHER).name,'Сергей');
+  assert.match(f.container.innerHTML,new RegExp(`<option value="${OTHER}" selected>Сергей`));
+  f.controller.dispose();
+});
+test('definitive participant failure keeps typed name and allows correction without losing other edits',async()=>{
+  const bodies=[];
+  const f=await selectedFixture(async(path,opt)=>{bodies.push(opt.body);if(bodies.length===1)throw Object.assign(Error('invalid'),{status:400,code:'invalid_participant'});return{participant:opt.body};},{participants:structuredClone(options.participants)});
+  await click(f,'participant-new',{ciChange:CHANGE});input(f,'text','Сохранить это уточнение');input(f,'participant_name','Сергей');
+  await click(f,'participant-save');
+  assert.match(f.container.innerHTML,/Укажите имя участника/);
+  assert.match(f.container.innerHTML,/data-ci-field="participant_name" value="Сергей"/);
+  input(f,'participant_name','Сергей Петров');await click(f,'participant-save');
+  assert.equal(bodies[1].name,'Сергей Петров');
+  assert.match(f.container.innerHTML,/Сохранить это уточнение/);
+  f.controller.dispose();
+});
+test('participant authorization expiry preserves name and proposal until returning from Google login',async()=>{
+  let authorized=false;
+  const f=await selectedFixture(async(path,opt)=>{if(!authorized)throw Object.assign(Error('unauthorized'),{status:401});return{participant:opt.body};},{participants:structuredClone(options.participants)});
+  await click(f,'participant-new',{ciChange:CHANGE});input(f,'text','Правка карточки');input(f,'participant_name','Сергей');await click(f,'participant-save');
+  assert.match(f.container.innerHTML,/target="_blank"/);
+  assert.doesNotMatch(f.container.innerHTML,/Правка карточки|value="Сергей"/);
+  authorized=true;await click(f,'reload');
+  assert.match(f.container.innerHTML,/Правка карточки/);
+  assert.match(f.container.innerHTML,/data-ci-field="participant_name" value="Сергей"/);
+  await click(f,'participant-save');
+  assert.match(f.container.innerHTML,new RegExp(`<option value="${REQUEST}" selected>Сергей`));
   f.controller.dispose();
 });

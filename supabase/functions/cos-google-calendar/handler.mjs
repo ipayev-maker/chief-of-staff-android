@@ -30,6 +30,19 @@ function validTimeZone(value) {
   new Intl.DateTimeFormat('en-US', {timeZone:value}).format(new Date(0));
   return value;
 }
+function inboxReturnTo(value) {
+  // Only local inbox routes are eligible. Never accept arbitrary URLs, query
+  // strings or encoded paths as OAuth redirect destinations.
+  return typeof value === 'string' && (value.length === 8 || value.length === 45) && /^\/#\/inbox(?:\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$/.test(value) ? value.toLowerCase() : null;
+}
+function callbackLocation(kind, reason, returnTo) {
+  const url = new URL(APP_ORIGIN + '/');
+  url.searchParams.set('calendar',kind);
+  if (reason) url.searchParams.set('reason',reason);
+  const route = inboxReturnTo(returnTo);
+  if (route) url.hash = route.slice(1);
+  return url.toString();
+}
 function safeReason(error) {
   const reason = error?.reason || error?.message;
   if (reason === 'missing_required_scopes') return 'missing_scope';
@@ -106,21 +119,28 @@ export function createHandler({store, google, config, now = () => new Date(), ru
   async function start(request) {
     const form = await request.formData();
     const timeZone = validTimeZone(form.get('time_zone'));
+    const requestedReturn = form.get('return_to');
+    const returnTo = inboxReturnTo(requestedReturn);
+    if (requestedReturn !== null && requestedReturn !== '' && !returnTo) return json({error:'invalid_return_to'},400);
     const state = randomToken();
     const browserSecret = randomToken();
     const verifier = randomToken(48);
     await store.remove(STATES,'expires_at=lt.' + queryValue(timestamp()));
-    await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browserSecret),verifier,time_zone:timeZone,expires_at:new Date(now().getTime()+600000).toISOString()});
+    await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browserSecret),verifier,time_zone:timeZone,return_to:returnTo,expires_at:new Date(now().getTime()+600000).toISOString()});
     return redirect(await google.authorizationUrl({state,verifier}),[cookie(FLOW_COOKIE,browserSecret,600)]);
   }
   async function callback(request,url) {
     const cleared = cookie(FLOW_COOKIE,'',0);
-    const failed = reason => redirect(APP_ORIGIN + '/?calendar=error&reason=' + encodeURIComponent(reason),[cleared]);
+    let returnTo = null;
+    const failed = reason => redirect(callbackLocation('error',reason,returnTo),[cleared]);
     const state = url.searchParams.get('state');
     const browserSecret = readCookie(request,FLOW_COOKIE);
     if (!state || state.length > 200 || !browserSecret || browserSecret.length > 200) return failed('invalid_state');
     const states = await store.remove(STATES,eq('state_hash',await sha256(state)) + '&' + eq('browser_hash',await sha256(browserSecret)) + '&expires_at=gt.' + queryValue(timestamp()));
     if (states.length !== 1) return failed('invalid_state');
+    // Only the consumed, browser-bound state controls the destination. Callback
+    // query parameters cannot replace it; legacy pending states safely use '/'.
+    returnTo = inboxReturnTo(states[0].return_to);
     if (url.searchParams.has('error')) return failed('denied');
     const code = url.searchParams.get('code');
     if (!code || code.length > 4096) return failed('oauth_failed');
@@ -158,7 +178,7 @@ export function createHandler({store, google, config, now = () => new Date(), ru
         await store.remove(SESSIONS,'expires_at=lt.' + queryValue(timestamp()));
         await store.insert(SESSIONS,{token_hash:await sha256(sessionToken),google_sub:identity.sub,expires_at:new Date(now().getTime()+SESSION_SECONDS*1000).toISOString()});
         // Durable cron performs initial import; OAuth callback remains fast.
-        return redirect(APP_ORIGIN + '/?calendar=connected',[cleared,cookie(SESSION_COOKIE,sessionToken,SESSION_SECONDS)]);
+        return redirect(callbackLocation('connected',null,returnTo),[cleared,cookie(SESSION_COOKIE,sessionToken,SESSION_SECONDS)]);
       } catch (error) {
         const reason = safeReason(error);
         const allowed = ['wrong_account','missing_scope','refresh_token_missing','calendar_setup_failed'];

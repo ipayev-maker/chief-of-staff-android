@@ -68,6 +68,13 @@
 .ci-field textarea::placeholder { color:#a0adba; }
 .ci-field :disabled { opacity:.65; background:#f4f7fa; }
 .ci-fields-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 13px; }
+.ci-participant-control { min-width:0; margin-bottom:13px; }
+.ci-participant-control .ci-field { margin-bottom:6px; }
+.ci-participant-control>.ci-button,.ci-change>.ci-button { min-height:30px; padding:4px 0; border-color:transparent; background:transparent; font-size:10px; }
+.ci-participant-create { margin:14px 0 3px; padding:14px; border:1px solid #dce6ef; border-radius:7px; background:#f8fbfd; }
+.ci-participant-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.ci-participant-actions .ci-button { font-size:10px; overflow-wrap:anywhere; }
+.ci-participant-error { color:#a37c70; font-size:11px; line-height:1.7; margin:10px 0 0; }
 .ci-hint { color:#9ba9b6; font-size:9px; line-height:1.8; margin:1px 0 0; }
 .ci-correction { margin-top:20px; padding:17px 0 0; border-top:1px solid var(--ci-line); }
 .ci-correction .ci-hint { margin-top:9px; }
@@ -92,4 +99,5 @@
 @media(max-width:1100px) { .ci-inbox { padding:24px; } .ci-layout { grid-template-columns:minmax(210px,.75fr) minmax(0,1.6fr); gap:17px; } .ci-review { padding:20px; } .ci-review-head { flex-direction:column; gap:9px; } .ci-status { align-self:start; } }
 @media(max-width:760px) { .ci-inbox { padding:21px 14px 34px; } .ci-head { gap:12px; align-items:start; } .ci-head h1 { font-size:25px; } .ci-head p { max-width:230px; font-size:11px; } .ci-head>.ci-button { margin-top:22px; padding:6px 9px; font-size:10px; } .ci-layout { grid-template-columns:minmax(0,1fr); gap:10px; } .ci-list { max-height:260px; overflow-y:auto; overscroll-behavior:contain; padding:0 2px 3px; } .ci-group { margin-bottom:15px; } .ci-list-item { padding:11px 13px; margin-bottom:7px; } .ci-list-title { -webkit-line-clamp:2; font-size:12px; } .ci-tabs { gap:20px; margin-bottom:19px; } .ci-tab { font-size:11px; } .ci-review { padding:17px 15px; } .ci-review-head h2 { font-size:19px; } .ci-review-head { gap:8px; } .ci-change { padding:15px 13px; } .ci-change-text { font-size:13px; } .ci-fields-grid { grid-template-columns:minmax(0,1fr); gap:0; } .ci-field input,.ci-field select,.ci-field textarea { font-size:16px; min-height:42px; } .ci-button { min-height:40px; } .ci-action-bar { gap:9px; } .ci-action-bar [data-ci-action=defer] { margin-left:0; } .ci-confirm-hint,.ci-hint { font-size:10px; } .ci-empty-detail { min-height:220px; padding:25px 18px; } .ci-message { padding:22px 18px; } }
 @media(prefers-reduced-motion:reduce) { .ci-change { transition:none; } }
+@media(max-width:760px) { .ci-has-selection .ci-detail { order:-1; } .ci-participant-create { padding:12px; } }
 @media(max-width:760px) { .sidebar nav { grid-template-columns:repeat(4,minmax(0,1fr)); } }

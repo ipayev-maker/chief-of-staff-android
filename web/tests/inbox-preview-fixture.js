@@ -15,12 +15,20 @@ window.addEventListener('DOMContentLoaded',async()=>{
     [second,{id:second,note_id:second,status:'ready',revision:1,created_at:'2026-09-29T11:20:00Z',source_text:'Нужно запросить образец у Сергея. Обсудили по телефону, проект уточню позже.',transcript:null,source_meta:{type:'text'},proposal:{version:1,time_zone:'Europe/Berlin',summary:'Запросить образец. Проект и участник требуют уточнения.',questions:['К какому проекту относится образец?','Какого Сергея вы имеете в виду?'],changes:[change('dddddddd-dddd-4ddd-8ddd-dddddddddddd','task_create','Запросить образец',{project_id:null,participant_id:null,direction:'internal',evidence:'Нужно запросить образец у Сергея.'})]}}],
     [third,{id:third,note_id:third,status:'deferred',revision:1,created_at:'2026-09-28T16:15:00Z',source_text:'Заказчику понравилась идея модульных полок. Вернуться к ней при обсуждении следующего магазина.',transcript:null,source_meta:{type:'text'},proposal:{version:1,time_zone:'Europe/Berlin',summary:'Идея модульных полок для следующего магазина.',questions:[],changes:[]}}]
   ]);
-  const copy=value=>JSON.parse(JSON.stringify(value)),replays=new Map();
+  const copy=value=>JSON.parse(JSON.stringify(value)),replays=new Map(),participants=new Map(S.participants.map(p=>[p.id,{...p}]));
   window.fetch=async()=>{throw Error('Тестовая страница: внешние запросы отключены')};
   netFetch=async()=>{throw Error('Тестовая страница: внешние запросы отключены')};
   api=async(path)=>path.includes('commitments')?copy(S.tasks):[];
   edge=async()=>{throw Error('Тестовая страница: внешние запросы отключены')};
   quickNotesRequest=async(path='',opt={})=>{
+    if(path==='/participants'&&opt.method==='POST'){
+      const body=opt.body||{},name=String(body.name||'').normalize('NFC').trim().replace(/\s+/gu,' '),existing=participants.get(body.id);
+      if(existing){if(existing.name===name)return{participant:copy(existing),replayed:true};throw Object.assign(Error('conflict'),{status:409,code:'participant_request_conflict'});}
+      const duplicate=[...participants.values()].find(p=>p.name.toLocaleLowerCase('ru')===name.toLocaleLowerCase('ru'));
+      if(duplicate)throw Object.assign(Error('exists'),{status:409,code:'participant_exists',participant:copy(duplicate)});
+      if(!name||name.length>200)throw Object.assign(Error('invalid participant'),{status:400,code:'invalid_participant'});
+      const participant={id:body.id,name,created_at:new Date().toISOString()};participants.set(participant.id,participant);return{participant:copy(participant),replayed:false};
+    }
     if(path.startsWith('/projects/')&&path.endsWith('/brief'))return{project_id:project,revision:0,document:{goal:'',current_state:'Обсуждаем чертежи и цвет оборудования.',next_step:'',checkpoint_label:'',checkpoint_on:null,entries:[]},history:[]};
     if(path.startsWith('/inbox?')){
       const search=new URLSearchParams(path.split('?')[1]),status=search.get('status'),offset=Number(search.get('offset')||0);
