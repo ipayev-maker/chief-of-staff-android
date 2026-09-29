@@ -21,13 +21,14 @@ function browser(url='https://example.test/?calendar=connected') {
     history:{scrollRestoration:'auto', get state(){return entries[position].state;},
       replaceState(state, title, target){entries[position] = {state, url:new URL(target, win.location).href};win.location.href = entries[position].url;},
       pushState(state, title, target){entries.splice(position+1);entries.push({state, url:new URL(target, win.location).href});position++;win.location.href = entries[position].url;},
-      go(delta){const next=position+delta;if(next<0||next>=entries.length)return;position=next;win.location.href=entries[position].url;queueMicrotask(()=>listeners.get('popstate')?.({state:entries[position].state}));},
+      go(delta){const next=position+delta;if(next<0||next>=entries.length)return;const oldURL=win.location.href;position=next;const entry=entries[position];win.location.href=entry.url;queueMicrotask(()=>{listeners.get('popstate')?.({state:entry.state});if(new URL(oldURL).hash!==new URL(entry.url).hash)listeners.get('hashchange')?.({oldURL,newURL:entry.url});});},
     },
   };
   const options={window:win, initialRoute:{section:'today'}, apply:async route=>{applied.push(route);return true;}};
   return {win, nodes, entries, applied, options, position:()=>position, scrollCalls:()=>scrollCalls,
     frame(){const callbacks=[...frames.values()];frames.clear();callbacks.forEach(fn=>fn());},
     back:async()=>{win.history.go(-1);await tick();},forward:async()=>{win.history.go(1);await tick();},
+    async externalHash(hash, {state=null, popstate=false}={}){const oldURL=win.location.href;win.history.pushState(state,'',hash);if(popstate)listeners.get('popstate')?.({state});listeners.get('hashchange')?.({oldURL,newURL:win.location.href});await tick();},
   };
 }
 
@@ -176,4 +177,85 @@ test('inbox message deep links survive Back and Forward and reject malformed IDs
   await b.back();assert.equal(b.applied.at(-1).inboxId,first);
   await b.forward();assert.equal(b.applied.at(-1).inboxId,second);
   controller.record({section:'tasks',inboxId:second});assert.equal(controller.getRoute().inboxId,undefined);
+});
+
+test('a Telegram hash link in an existing tab opens its card and supports Back and Forward', async () => {
+  const first='11111111-1111-4111-8111-111111111111', second='22222222-2222-4222-8222-222222222222';
+  const b=browser(), controller=navigation.create(b.options);
+  await b.externalHash('#/inbox/'+first);
+  assert.equal(controller.getRoute().inboxId,first);assert.equal(b.applied.length,1);
+  // Some integrations copy an existing state when changing only the fragment.
+  // The destination URL, rather than that stale marker, must select the card.
+  await b.externalHash('#/inbox/'+second,{state:b.win.history.state,popstate:true});
+  assert.equal(controller.getRoute().inboxId,second);assert.equal(b.applied.length,2);
+  const length=b.entries.length;
+  await b.back();assert.equal(controller.getRoute().inboxId,first);assert.equal(b.applied.length,3);
+  await b.forward();assert.equal(controller.getRoute().inboxId,second);assert.equal(b.applied.length,4);
+  assert.equal(b.entries.length,length);
+  controller.record({section:'tasks'});
+  await b.back();assert.equal(controller.getRoute().inboxId,second);assert.equal(b.applied.length,5);
+});
+
+test('popstate and hashchange run one draft guard and one asynchronous card load', async () => {
+  const b=browser(), guard=deferred(), load=deferred();let guardCalls=0, applyCalls=0;
+  const controller=navigation.create({...b.options,canLeave:()=>{guardCalls++;return guard.promise;},apply:async()=>{applyCalls++;await load.promise;return true;}});
+  await b.externalHash('#/inbox/11111111-1111-4111-8111-111111111111',{popstate:true});
+  assert.equal(guardCalls,1);assert.equal(applyCalls,0);assert.equal(controller.isNavigating(),true);
+  guard.resolve(true);await tick();assert.equal(applyCalls,1);
+  load.resolve();await tick();assert.equal(controller.getRoute().section,'inbox');assert.equal(controller.isNavigating(),false);
+});
+
+test('cancelled external links preserve edits and never guess a position in foreign history', async () => {
+  const b=browser(), controller=navigation.create({...b.options,canLeave:()=>false});
+  const foreign={unrelated:'external',cosNavigation:{session:'another-tab',index:99,route:{section:'inbox'}}};
+  await b.externalHash('#/inbox/11111111-1111-4111-8111-111111111111',{state:foreign,popstate:true});
+  assert.equal(controller.getRoute().section,'today');assert.equal(b.win.location.hash,'#/today');
+  assert.equal(b.position(),2);assert.equal(b.entries.length,3);assert.equal(b.applied.length,0);
+  assert.equal(b.win.history.state.unrelated,'external');assert.equal(controller.isNavigating(),false);
+  await b.back();await b.back();
+  assert.equal(b.position(),0);assert.equal(b.win.location.origin,'https://other.test');
+});
+
+test('failed external card loads restore the URL in place and report the error once', async () => {
+  const b=browser(), errors=[], controller=navigation.create({...b.options,apply:async()=>{throw Error('card unavailable');},onError:error=>errors.push(error.message)});
+  controller.record({section:'notes'});
+  await b.externalHash('#/inbox/11111111-1111-4111-8111-111111111111',{popstate:true});
+  assert.equal(controller.getRoute().section,'notes');assert.equal(b.win.location.hash,'#/notes');
+  assert.equal(b.position(),3);assert.equal(b.entries.length,4);assert.deepEqual(errors,['card unavailable']);
+});
+
+test('Back to the current screen invalidates an unfinished external card load', async () => {
+  const b=browser(), load=deferred(), commits=[];
+  const controller=navigation.create({...b.options,apply:async(route,{isCurrent})=>{if(route.section==='inbox')await load.promise;if(isCurrent())commits.push(route.section);return true;}});
+  await b.externalHash('#/inbox/11111111-1111-4111-8111-111111111111');
+  assert.equal(controller.isNavigating(),true);
+  await b.back();assert.equal(controller.isNavigating(),false);
+  load.resolve();await tick();
+  assert.deepEqual(commits,['today']);assert.equal(controller.getRoute().section,'today');assert.equal(b.win.location.hash,'#/today');
+});
+
+test('the actual application opens a same-tab inbox link without a document reload', async () => {
+  const f=appFixture({linkedNavigation:true}), id='11111111-1111-4111-8111-111111111111';
+  f.evaluate("api=async()=>[];syncMeetingStatuses=async()=>{};checkMeetingReminders=()=>{};todayPage=()=>events.push('today');inboxPage=()=>events.push(S.inboxId);");
+  await f.evaluate('boot()');
+  await f.browserState.externalHash('#/inbox/'+id,{popstate:true});
+  assert.equal(f.evaluate('S.section'),'inbox');assert.equal(f.evaluate('S.inboxId'),id);assert.equal(f.events.at(-1),id);
+  await f.browserState.back();assert.equal(f.evaluate('S.section'),'today');
+  await f.browserState.forward();assert.equal(f.evaluate('S.inboxId'),id);
+});
+
+test('the actual application restores Today before an abandoned project load completes', async () => {
+  const f=appFixture({linkedNavigation:true}), projectRead=deferred();
+  f.context.projectRead=projectRead.promise;
+  f.evaluate("api=async()=>[];syncMeetingStatuses=async()=>{};checkMeetingReminders=()=>{};todayPage=()=>events.push('today');workspace=()=>events.push('project:'+S.project.id);");
+  await f.evaluate('boot()');
+  f.evaluate("S.projects=[{id:'project-1',title:'Project'}];api=async url=>url.includes('project_notes')?projectRead:[];");
+  await f.browserState.externalHash('#/projects/project-1/overview',{popstate:true});
+  assert.equal(f.evaluate('S.project.id'),'project-1');assert.equal(f.evaluate('dashboardNavigation.isNavigating()'),true);
+  await f.browserState.back();
+  assert.equal(f.evaluate('S.section'),'today');assert.equal(f.evaluate('S.project'),null);
+  assert.equal(f.browserState.win.location.hash,'#/today');assert.equal(f.events.at(-1),'today');
+  projectRead.resolve([]);await tick();await tick();
+  assert.equal(f.evaluate('S.project'),null);assert.equal(f.events.includes('project:project-1'),false);
+  assert.equal(f.evaluate('dashboardNavigation.isNavigating()'),false);assert.equal(f.browserState.win.location.hash,'#/today');
 });
