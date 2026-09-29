@@ -1,5 +1,7 @@
 import {createStore} from '../cos-google-calendar/store.mjs';
 import {createNotesHandler} from './handler.mjs';
+import {createCommunicationInbox, createInboxModel} from './communication-inbox.mjs';
+import {createVoiceAdapter} from '../telegram-webhook/voice.mjs';
 
 // Deploy with verify_jwt=false: the handler authenticates the existing private
 // owner session cookie, not a public Supabase key or a caller-supplied email.
@@ -11,7 +13,23 @@ Deno.serve(async (request: Request) => {
         url: Deno.env.get('SUPABASE_URL'),
         serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
       });
-      handler = createNotesHandler({store});
+      const voiceAdapter = createVoiceAdapter({
+        url: Deno.env.get('SUPABASE_URL'), serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+        botToken: Deno.env.get('TELEGRAM_BOT_TOKEN'), openRouterKey: Deno.env.get('OPENROUTER_KEY'),
+      });
+      const ownerVoice = async (method: 'save' | 'transcribe' | 'read', args: object) => {
+        const config = await store.rpc('cos_notes_get_config');
+        return voiceAdapter[method]({...args, ownerId: config.telegramOwnerUserId});
+      };
+      const inbox = createCommunicationInbox({store,
+        model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY')}),
+        voice: {save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
+        timeZone: async () => {
+          const settings = await store.page('cos_settings', 'select=time_zone&limit=1');
+          return settings[0]?.time_zone || 'Europe/Berlin';
+        },
+      });
+      handler = createNotesHandler({store, inbox});
     }
     return await handler(request);
   } catch {

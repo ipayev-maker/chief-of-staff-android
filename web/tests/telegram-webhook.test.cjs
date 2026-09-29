@@ -1,140 +1,40 @@
-// Node 24; synthetic Telegram updates and injected adapters only. No network.
+// Node 24; injected I/O and synthetic Telegram updates only. No messages/network.
 const {test}=require('node:test');const assert=require('node:assert/strict');
-const implementation=Promise.all([import('../../supabase/functions/telegram-webhook/handler.mjs'),import('../../supabase/functions/telegram-webhook/runtime.mjs')]);
+const implementation=import('../../supabase/functions/telegram-webhook/handler.mjs');
 const ID='12345678-1234-4123-8123-123456789abc';
-const config={webhookSecret:'a'.repeat(64),telegramOwnerUserId:'123456789',telegramOwnerChatId:'123456789'};
+const config={webhookSecret:'a'.repeat(64),telegramOwnerUserId:'123456789',telegramOwnerChatId:'123456789',time_zone:'Europe/Berlin'};
 const update=(extra={})=>({update_id:100,message:{message_id:200,from:{id:123456789,is_bot:false},chat:{id:123456789,type:'private'},text:'Обычная мысль',...extra}});
+const callback=(data,id='synthetic-query')=>({update_id:101,callback_query:{id,from:{id:123456789},message:{chat:{id:123456789,type:'private'}},data}});
 async function fixture(){
-  const [{createTelegramWebhook}]=await implementation;const calls=[],sent=[],receipts=new Map();
-  const env={extractResult:{project:null,commitments:[],events:[]},extractionError:false,dateResult:{dates:[]},saveError:false,replyError:false,raceDuplicate:false,ownerTarget:true,config:{...config},refDate:'2026-09-24T18:00:00.000Z',dateResults:{},dateHandler:null};
-  const store={async list(table,query){calls.push({type:'list',table,query});if(table==='cos_notes_telegram_receipts'){const p=new URLSearchParams(query);const key=p.get('chat_id')+':'+p.get('message_id');return receipts.has(key)?[{result_json:receipts.get(key)}]:[]}return env.ownerTarget?[{id:ID}]:[]},async rpc(name,body){calls.push({type:'rpc',name,body:structuredClone(body)});if(env.saveError)throw Error('private database body');if(name==='cos_notes_ingest_telegram'){const result={kind:body.p_kind,note_id:body.p_kind==='note'?ID:null,inbox_id:body.p_kind==='entities'?ID:null,commitment_ids:body.p_kind==='entities'?[ID]:[],duplicate:env.raceDuplicate};receipts.set('eq.'+body.p_chat_id+':eq.'+body.p_message_id,result);return result}return {success:true}}};
-  const handler=createTelegramWebhook({
-    loadConfig:async()=>{calls.push({type:'config'});return env.config},store,now:()=>new Date(env.refDate),
-    extract:async(text,options)=>{calls.push({type:'extract',text,options});if(env.extractionError)throw Error('private model response');if(env.refAfterExtract)env.refDate=env.refAfterExtract;return structuredClone(env.extractResult)},
-    parseDates:async(text,options)=>{calls.push({type:'dates',text,options});return env.dateHandler?env.dateHandler(text,options):structuredClone(env.dateResults[text]||env.dateResult)},
-    sendTelegram:async(method,body)=>{sent.push({method,body});if(env.replyError)throw Error('private Telegram body');return {message_id:1}}
-  });
-  env.calls=calls;env.sent=sent;env.receipts=receipts;env.rpc=()=>calls.filter(call=>call.type==='rpc');
-  env.run=(value=update(),headers={'X-Telegram-Bot-Api-Secret-Token':config.webhookSecret})=>handler(new Request('https://example.invalid/telegram-webhook',{method:'POST',headers,body:JSON.stringify(value)}));
-  env.handler=handler;return env;
+  const {createTelegramWebhook}=await implementation,calls=[],sent=[],receipts=new Map();
+  const env={config:{...config},saveError:false,replyError:false,analysisError:false,callbackError:false,raceDuplicate:false,ownerTarget:true,replyClaimed:false,item:{id:ID,note_id:ID,status:'captured',revision:0,proposal:{}},proposal:{summary:'Сохранил информацию',questions:[],changes:[]}};
+  const store={async list(table,query){calls.push({type:'list',table,query});if(table==='cos_notes_telegram_receipts'){const p=new URLSearchParams(query),key=p.get('chat_id')+':'+p.get('message_id');return receipts.has(key)?[{result_json:receipts.get(key)}]:[]}return env.ownerTarget?[{id:ID}]:[]},async rpc(name,body){calls.push({type:'rpc',name,body:structuredClone(body)});if(env.saveError)throw Error('private database response');if(name==='cos_inbox_capture_telegram'){const item={...env.item,source_text:body.p_text,source_meta:body.p_source_meta};env.item=item;receipts.set('eq.'+body.p_chat_id+':eq.'+body.p_message_id,{note_id:ID});return {item,duplicate:env.raceDuplicate}}if(name==='cos_inbox_claim_reply'){if(env.replyClaimed)return false;env.replyClaimed=true;return true}return {success:true}}};
+  const inbox={async analyze(id,options){calls.push({type:'analyze',id,options});if(env.analysisError){env.item={...env.item,status:'error',revision:1,error_code:'analysis_failed'};throw Error('private model response')}env.item={...env.item,status:'ready',revision:2,proposal:env.proposal};return {item:env.item}},async get(id){calls.push({type:'get',id});return {item:env.item}},async apply(id,options){calls.push({type:'apply',id,options});if(env.callbackError)throw Error('conflict');return {item:{...env.item,status:'applied'}}},async defer(id,options){calls.push({type:'defer',id,options});if(env.callbackError)throw Error('conflict');return {item:{...env.item,status:'deferred'}}}};
+  env.handler=createTelegramWebhook({loadConfig:async()=>{calls.push({type:'config'});return env.config},store,createInbox:configuration=>{calls.push({type:'service',owner:configuration.telegramOwnerUserId});return inbox},now:()=>new Date('2026-09-29T18:00:00Z'),sendTelegram:async(method,body)=>{sent.push({method,body});if(env.replyError)throw Error('private Telegram response');return {message_id:1}}});
+  env.calls=calls;env.sent=sent;env.receipts=receipts;env.rpc=()=>calls.filter(call=>call.type==='rpc');env.run=(value=update(),headers={'X-Telegram-Bot-Api-Secret-Token':config.webhookSecret})=>env.handler(new Request('https://example.invalid/telegram-webhook',{method:'POST',headers,body:JSON.stringify(value)}));return env;
 }
-test('missing or incorrect webhook secret blocks all data processing',async()=>{
-  const env=await fixture();assert.equal((await env.run(update(),{})).status,401);assert.equal(env.calls.length,0);
-  assert.equal((await env.run(update(),{'X-Telegram-Bot-Api-Secret-Token':'wrong'})).status,401);assert.equal(env.calls.filter(call=>call.type!=='config').length,0);assert.equal(env.sent.length,0);
-});
-test('owner, private chat and sender checks reject other recipients even with valid secret',async()=>{
-  const env=await fixture();
-  for(const extra of [{from:{id:987654321}},{chat:{id:987654321,type:'private'}},{chat:{id:123456789,type:'group'}},{from:{id:123456789,is_bot:true}}])assert.equal((await env.run(update(extra))).status,200);
-  assert.equal(env.calls.filter(call=>call.type!=='config').length,0);assert.equal(env.sent.length,0);
-});
-test('incomplete owner configuration fails closed',async()=>{
-  const env=await fixture();env.config.telegramOwnerChatId='987654321';assert.equal((await env.run()).status,503);assert.equal(env.rpc().length,0);
-});
-test('plain text without tasks/events creates one private note without legacy writes or date parsing',async()=>{
-  const env=await fixture();const response=await env.run(update({text:'  Исследовательская мысль  '}));assert.equal(response.status,200);
-  assert.equal(env.rpc().length,1);const call=env.rpc()[0];assert.equal(call.name,'cos_notes_ingest_telegram');
-  assert.deepEqual(call.body,{p_update_id:100,p_message_id:200,p_chat_id:123456789,p_user_id:123456789,p_text:'Исследовательская мысль',p_kind:'note',p_project:null,p_commitments:[],p_events:[],p_extracted:{}});
-  assert.equal(env.calls.some(call=>call.type==='dates'),false);assert.equal(env.sent.length,1);assert.equal(env.sent[0].method,'sendMessage');assert.match(env.sent[0].body.text,/Сохранил заметку/);assert.match(env.sent[0].body.text,new RegExp('section=notes&id='+ID));
-});
-test('a project-only interpretation is still a note rather than an empty legacy journal entry',async()=>{
-  const env=await fixture();env.extractResult.project={title:'Existing project',description:'Context'};await env.run();assert.equal(env.rpc()[0].body.p_kind,'note');assert.equal(env.rpc()[0].body.p_project,null);
-});
-test('text transcript follows the note path; unsupported raw voice is not falsely transcribed',async()=>{
-  const env=await fixture();await env.run(update({text:'Транскрипция: идея для обсуждения'}));assert.equal(env.rpc()[0].body.p_kind,'note');
-  const voice=await fixture();await voice.run(update({text:undefined,voice:{file_id:'synthetic'}}));assert.equal(voice.rpc().length,0);assert.equal(voice.sent.length,0);
-});
-test('malformed or failed extraction never silently becomes a saved note',async()=>{
-  for(const value of [{},{project:null,commitments:[{description:'Action'}],events:[]}]){
-    const env=await fixture();env.extractResult=value;const response=await env.run();assert.equal(response.status,503);assert.equal(env.rpc().length,0);assert.equal(env.sent.length,0);assert.equal((await response.text()).includes('private'),false);
-  }
-  const env=await fixture();env.extractionError=true;assert.equal((await env.run()).status,503);assert.equal(env.rpc().length,0);
-});
-test('existing receipt is checked before AI and produces no duplicate outbound reply',async()=>{
-  const env=await fixture();await env.run();await env.run(update({text:'Changed duplicate must not overwrite'}));
-  assert.equal(env.calls.filter(call=>call.type==='extract').length,1);assert.equal(env.rpc().length,1);assert.equal(env.sent.length,1);assert.equal(env.rpc()[0].body.p_text,'Обычная мысль');
-});
-test('concurrent duplicate determined by atomic RPC is acknowledged without a second reply',async()=>{
-  const env=await fixture();env.raceDuplicate=true;assert.equal((await env.run()).status,200);assert.equal(env.rpc().length,1);assert.equal(env.sent.length,0);
-});
-test('entity extraction preserves independent dates and required Telegram IDs in the atomic RPC',async()=>{
-  const env=await fixture();env.extractResult={project:null,commitments:[{description:'Ответить Юрию',who:'Юрий',direction:'from_me',source_text:'Ответить Юрию завтра',date_text:'завтра',date_status:'explicit'}],events:[{description:'Обсуждение проекта',source_text:'Обсуждение проекта 1 октября',date_text:'1 октября',date_status:'explicit'}]};
-  assert.equal((await env.run(update({text:'Ответить Юрию завтра. Обсуждение проекта 1 октября.'}))).status,200);const body=env.rpc()[0].body;assert.equal(body.p_kind,'entities');assert.equal(body.p_message_id,200);assert.equal(body.p_commitments[0].deadline,'2026-09-25');assert.equal(body.p_commitments[0].direction,'from_me');assert.equal(body.p_events[0].date,'2026-10-01');
-  assert.match(env.sent[0].body.text,/Ответить Юрию/);assert.equal(env.sent[0].body.reply_markup.inline_keyboard[0][0].callback_data,'done:'+ID);
-  assert.equal(env.calls.filter(call=>call.type==='dates').length,0); // Known dates avoid the legacy parser's week rollover.
-});
-test('an impossible deadline is saved without a fabricated date and clearly reported',async()=>{
-  const env=await fixture();env.extractResult={project:null,commitments:[{description:'Отправить образец',direction:'internal',source_text:'Отправить образец 30 февраля 2026',date_text:'30 февраля 2026',date_status:'explicit'}],events:[]};
-  assert.equal((await env.run(update({text:'Отправить образец 30 февраля 2026'}))).status,200);assert.equal(env.rpc()[0].body.p_commitments[0].deadline,null);assert.match(env.sent[0].body.text,/Без даты: 1/);
-});
-test('database failure cannot claim the message was saved',async()=>{
-  const env=await fixture();env.saveError=true;assert.equal((await env.run()).status,503);assert.equal(env.sent.length,0);
-});
-test('uncertain reply is not retried after durable storage',async()=>{
-  const env=await fixture();env.replyError=true;assert.equal((await env.run()).status,200);assert.equal((await env.run()).status,200);assert.equal(env.rpc().length,1);assert.equal(env.sent.length,1);
-});
-test('callback target requires owner-matching database row before old task RPC',async()=>{
-  const callback={update_id:101,callback_query:{id:'synthetic-query',from:{id:123456789},message:{chat:{id:123456789,type:'private'}},data:'done:'+ID}};
-  const denied=await fixture();denied.ownerTarget=false;await denied.run(callback);assert.equal(denied.rpc().length,0);assert.equal(denied.sent.length,0);
-  const env=await fixture();await env.run(callback);assert.match(env.calls.find(call=>call.type==='list').query,/telegram_user_id=eq.123456789/);assert.equal(env.rpc()[0].name,'set_commitment_status');assert.equal(env.rpc()[0].body.p_status,'completed');assert.equal(env.sent[0].method,'answerCallbackQuery');
-});
-test('invalid or oversized updates never reach classifier',async()=>{
-  const env=await fixture();assert.equal((await env.run({update_id:-1,message:update().message})).status,400);
-  assert.equal((await env.run(update({text:'x'.repeat(132000)}))).status,413);assert.equal(env.calls.some(call=>call.type==='extract'),false);
-});
-test('native adapters retain existing model/date parser and never turn HTTP errors into empty extraction',async()=>{
-  const [, {createTelegramRuntime}]=await implementation;const requests=[];
-  const env={url:'https://example.supabase.co',serviceKey:'service-test',anonKey:'anon-test',botToken:'bot-test',openRouterKey:'model-test'};
-  const runtime=createTelegramRuntime({...env,fetchImpl:async(url,init)=>{requests.push({url,init});if(url.includes('openrouter.ai'))return new Response(JSON.stringify({choices:[{message:{content:'{"project":null,"commitments":[],"events":[]}'}}]}),{status:200});return new Response(JSON.stringify(url.includes('parse-dates')?{dates:[]}:{}),{status:200})}});
-  assert.deepEqual(await runtime.extract('Synthetic text'),{project:null,commitments:[],events:[]});assert.equal(JSON.parse(requests[0].init.body).model,'anthropic/claude-sonnet-4.6');assert.equal(JSON.parse(requests[0].init.body).messages[1].content,'Synthetic text');
-  const refDate='2026-09-24T21:01:00.000Z';await runtime.parseDates('Tomorrow',{refDate});assert.equal(requests[1].init.headers.Authorization,'Bearer anon-test');assert.deepEqual(JSON.parse(requests[1].init.body),{text:'Tomorrow',refDate});
-  await runtime.extract('Контроль',{refDate});assert.match(JSON.parse(requests[2].init.body).messages[0].content,/Today is 2026-09-25/);assert.match(JSON.parse(requests[2].init.body).messages[0].content,/source_text/);
-  const broken=createTelegramRuntime({...env,fetchImpl:async()=>new Response('private upstream error',{status:500})});await assert.rejects(broken.extract('text'),{message:'upstream_failed'});
-});
-
-const task=(description,source_text,date_text=null,extra={})=>({description,source_text,date_text,date_status:date_text?'explicit':'none',direction:'internal',...extra});
-test('several deadlines, an undated task and an event keep their own dates',async()=>{
-  const env=await fixture();const text='Чертежи завтра; образец в понедельник; запросить КП; встреча 1 октября.';
-  env.extractResult={project:null,commitments:[task('Подготовить чертежи','Чертежи завтра','завтра'),task('Отправить образец','образец в понедельник','в понедельник'),task('Запросить КП','запросить КП')],events:[{description:'Встреча',source_text:'встреча 1 октября',date_text:'1 октября',date_status:'explicit'}]};
-  assert.equal((await env.run(update({text}))).status,200);const saved=env.rpc()[0].body;
-  assert.deepEqual(saved.p_commitments.map(row=>row.deadline),['2026-09-25','2026-09-28',null]);assert.equal(saved.p_events[0].date,'2026-10-01');assert.doesNotMatch(env.sent[0].body.text,/Без даты/);
-  await env.run(update({text}));assert.equal(env.calls.filter(call=>call.type==='extract').length,1);assert.equal(env.rpc().length,1);assert.equal(env.sent.length,1);
-});
-test('one explicitly shared date applies to both actions',async()=>{
-  const env=await fixture();const text='Завтра подготовить чертежи и отправить образец';env.extractResult={project:null,commitments:[task('Подготовить чертежи',text,'Завтра'),task('Отправить образец',text,'Завтра')],events:[]};
-  await env.run(update({text}));assert.deepEqual(env.rpc()[0].body.p_commitments.map(row=>row.deadline),['2026-09-25','2026-09-25']);
-});
-test('fabricated quotes and model-supplied normalized deadlines are never trusted',async()=>{
-  const env=await fixture();const text='Запросить КП; подготовить чертежи завтра';env.extractResult={project:null,commitments:[task('Запросить КП','Запросить КП','в пятницу',{deadline:'2026-10-02'}),task('Подготовить чертежи','Подготовить чертежи 1 октября','1 октября')],events:[]};
-  assert.equal((await env.run(update({text}))).status,200);assert.deepEqual(env.rpc()[0].body.p_commitments.map(row=>row.deadline),[null,null]);assert.match(env.sent[0].body.text,/Без даты: 2/);assert.equal(env.calls.filter(call=>call.type==='dates').length,0);
-});
-test('a missing date in evidence does not inherit another action date',async()=>{
-  const env=await fixture();const text='Чертежи завтра; запросить КП';env.extractResult={project:null,commitments:[task('Чертежи','Чертежи завтра','завтра'),task('Запросить КП','запросить КП')],events:[]};
-  await env.run(update({text}));assert.deepEqual(env.rpc()[0].body.p_commitments.map(row=>row.deadline),['2026-09-25',null]);
-});
-test('uncertain, negated and ranged dates remain unassigned even when the model picks one part',async()=>{
-  for(const [source,date] of [['Отправить образец не завтра','завтра'],['Чертежи завтра или в пятницу','завтра'],['Образец с 25 по 27 сентября','27 сентября'],['Образец 25 сентября — 27 сентября','25 сентября'],['Образец примерно в пятницу','в пятницу'],['Образец на следующей неделе','на следующей неделе']]){
-    const env=await fixture();env.extractResult={project:null,commitments:[task('Отправить образец',source,date)],events:[]};await env.run(update({text:source}));assert.equal(env.rpc()[0].body.p_commitments[0].deadline,null,source);assert.match(env.sent[0].body.text,/Без даты: 1/);assert.equal(env.calls.filter(call=>call.type==='dates').length,0);
-  }
-});
-test('one Moscow reference instant governs extraction and dates even if extraction crosses midnight',async()=>{
-  const env=await fixture();env.refDate='2026-09-24T20:59:59.000Z';env.refAfterExtract='2026-09-24T21:00:01.000Z';const text='Подготовить чертежи завтра; отправить образец послезавтра';
-  env.extractResult={project:null,commitments:[task('Подготовить чертежи','Подготовить чертежи завтра','завтра'),task('Отправить образец','отправить образец послезавтра','послезавтра')],events:[]};
-  await env.run(update({text}));const extraction=env.calls.find(call=>call.type==='extract');assert.equal(extraction.options.refDate,'2026-09-24T20:59:59.000Z');assert.deepEqual(env.rpc()[0].body.p_commitments.map(row=>row.deadline),['2026-09-25','2026-09-26']);assert.equal(env.calls.filter(call=>call.type==='dates').length,0);
-});
-test('unknown phrasing never calls the faulty legacy parser or silently assigns a date',async()=>{
-  for(const date of ['на Рождество','неделю назад','через месяц']){
-    const env=await fixture();const text='Отправить образец '+date;env.extractResult={project:null,commitments:[task('Отправить образец',text,date)],events:[]};env.dateHandler=async()=>{throw Error('must not be called')};
-    assert.equal((await env.run(update({text}))).status,200);assert.equal(env.rpc()[0].body.p_commitments[0].deadline,null);assert.match(env.sent[0].body.text,/Без даты: 1/);assert.equal(env.calls.filter(call=>call.type==='dates').length,0);
-  }
-});
-test('contradictory date status and negation after the date require clarification',async()=>{
-  for(const extra of [{date_status:'none'},{date_status:'unexpected'},{date_status:undefined}]){
-    const env=await fixture();const text='Чертежи завтра';env.extractResult={project:null,commitments:[task('Чертежи',text,'завтра',extra)],events:[]};await env.run(update({text}));assert.equal(env.rpc()[0].body.p_commitments[0].deadline,null);assert.match(env.sent[0].body.text,/Без даты: 1/);
-  }
-  const env=await fixture();const text='Встреча завтра не состоится';env.extractResult={project:null,commitments:[],events:[{description:'Встреча',source_text:text,date_text:'завтра',date_status:'explicit'}]};await env.run(update({text}));assert.equal(env.rpc()[0].body.p_events[0].date,null);assert.match(env.sent[0].body.text,/Без даты: 1/);
-});
-
-test('delayed Telegram delivery uses the original message day for relative deadlines',async()=>{
-  const env=await fixture();env.refDate='2026-09-26T09:00:00.000Z';const text='Отправить образец завтра';env.extractResult={project:null,commitments:[task('Отправить образец',text,'завтра')],events:[]};
-  const sent='2026-09-24T18:00:00.000Z';await env.run(update({text,date:Date.parse(sent)/1000}));assert.equal(env.calls.find(call=>call.type==='extract').options.refDate,sent);assert.equal(env.rpc()[0].body.p_commitments[0].deadline,'2026-09-25');
-});
+test('missing or incorrect webhook secret blocks all source and model processing',async()=>{const env=await fixture();assert.equal((await env.run(update(),{})).status,401);assert.equal(env.calls.length,0);assert.equal((await env.run(update(),{'X-Telegram-Bot-Api-Secret-Token':'wrong'})).status,401);assert.equal(env.calls.filter(c=>c.type!=='config').length,0);assert.equal(env.sent.length,0)});
+test('owner privatechat and sender checks reject other recipients even with validsecret',async()=>{const env=await fixture();for(const extra of [{from:{id:987654321}},{chat:{id:987654321,type:'private'}},{chat:{id:123456789,type:'group'}},{from:{id:123456789,is_bot:true}}])assert.equal((await env.run(update(extra))).status,200);assert.equal(env.calls.filter(c=>c.type!=='config').length,0)});
+test('incomplete owner configuration fails closed',async()=>{const env=await fixture();env.config.telegramOwnerChatId='987654321';assert.equal((await env.run()).status,503);assert.equal(env.rpc().length,0)});
+test('text is atomically captured as note and inbox before analysis without automatic entity writes',async()=>{const env=await fixture();assert.equal((await env.run(update({text:'  Отправить чертёж завтра  '}))).status,200);const capture=env.rpc()[0];assert.equal(capture.name,'cos_inbox_capture_telegram');assert.equal(capture.body.p_text,'Отправить чертёж завтра');assert.equal(capture.body.p_source_meta.type,'text');assert.ok(env.calls.indexOf(capture)<env.calls.findIndex(c=>c.type==='analyze'));assert.equal(env.calls.some(c=>c.type==='apply'),false);assert.equal(env.rpc().some(c=>['save_all_entities','cos_notes_ingest_telegram'].includes(c.name)),false);assert.equal(env.sent.length,1);assert.match(env.sent[0].body.text,/Входящие/);assert.match(env.sent[0].body.reply_markup.inline_keyboard[0][0].url,new RegExp('#/inbox/'+ID))});
+test('processing failure preserves source and sends a recoverable inbox link',async()=>{const env=await fixture();env.analysisError=true;assert.equal((await env.run()).status,200);assert.equal(env.rpc()[0].name,'cos_inbox_capture_telegram');assert.equal(env.item.source_text,'Обычная мысль');assert.equal(env.item.status,'error');assert.equal(env.sent.length,1);assert.match(env.sent[0].body.text,/повторить обработку/);assert.doesNotMatch(JSON.stringify(env.sent),/private model/)});
+test('eligible voice metadata is captured before speech processing without pretending it is transcribed',async()=>{const env=await fixture();await env.run(update({text:undefined,caption:'Итог звонка',voice:{file_id:'voice-file',file_unique_id:'voice-unique',duration:30,file_size:64,mime_type:'audio/ogg'}}));const capture=env.rpc()[0];assert.equal(capture.body.p_text,'Итог звонка');assert.equal(capture.body.p_source_meta.type,'voice');assert.equal(capture.body.p_source_meta.voice.file_id,'voice-file');assert.equal(capture.body.p_source_meta.owner_id,123456789);assert.ok(env.calls.indexOf(capture)<env.calls.findIndex(c=>c.type==='analyze'));const empty=await fixture();await empty.run(update({text:undefined,voice:{file_id:'x',duration:10}}));assert.equal(empty.rpc()[0].body.p_text,'[Голосовое сообщение]')});
+test('unsupported attachments produce no false note or transcript',async()=>{const env=await fixture();await env.run(update({text:undefined,document:{file_id:'doc'}}));assert.equal(env.rpc().length,0);assert.equal(env.sent.length,0)});
+test('existing receipt skips AI and outbound reply, including previous release receipts',async()=>{const env=await fixture();await env.run();await env.run(update({text:'Duplicate cannot overwrite'}));assert.equal(env.calls.filter(c=>c.type==='analyze').length,1);assert.equal(env.rpc().filter(c=>c.name==='cos_inbox_capture_telegram').length,1);assert.equal(env.sent.length,1);assert.equal(env.item.source_text,'Обычная мысль')});
+test('atomic concurrent duplicate avoids speech, model and outbound reply',async()=>{const env=await fixture();env.raceDuplicate=true;assert.equal((await env.run()).status,200);assert.equal(env.calls.some(c=>c.type==='analyze'),false);assert.equal(env.sent.length,0)});
+test('reply claim occurs before sending and uncertain send never repeats',async()=>{const env=await fixture();env.replyError=true;assert.equal((await env.run()).status,200);assert.equal((await env.run()).status,200);assert.equal(env.rpc().filter(c=>c.name==='cos_inbox_claim_reply').length,1);assert.equal(env.sent.length,1);const claimed=await fixture();claimed.replyClaimed=true;await claimed.run();assert.equal(claimed.sent.length,0)});
+test('database failure cannot claim communication was saved or reach AI',async()=>{const env=await fixture();env.saveError=true;const result=await env.run();assert.equal(result.status,503);assert.equal(env.calls.some(c=>c.type==='analyze'),false);assert.equal(env.sent.length,0);assert.doesNotMatch(await result.text(),/private/)});
+test('original Telegram timestamp anchors relative dates for delayed messages',async()=>{const env=await fixture(),sent='2026-09-24T18:00:00.000Z';await env.run(update({date:Date.parse(sent)/1000}));assert.equal(env.rpc()[0].body.p_source_meta.message_date,sent)});
+test('proposal card presents changes and explicit apply without applying automatically',async()=>{const env=await fixture();env.proposal={summary:'Договорённость после звонка',questions:[],changes:[{kind:'task_create',selected:true,text:'Отправить размеры завтра'}]};await env.run();assert.equal(env.calls.some(c=>c.type==='apply'),false);assert.match(env.sent[0].body.text,/Отправить размеры/);const button=env.sent[0].body.reply_markup.inline_keyboard[0][0];assert.equal(button.callback_data,'ia:'+ID+':2');assert.ok(Buffer.byteLength(button.callback_data)<=64)});
+test('unresolved questions and missing project context require opening the review card',async()=>{for(const proposal of [{questions:['Какой проект?'],changes:[{kind:'task_create',text:'Уточнить'}]},{questions:[],changes:[{kind:'project_entry',text:'Ждём ответа',project_id:null}]}]){const env=await fixture();env.proposal=proposal;await env.run();assert.equal(env.sent[0].body.reply_markup.inline_keyboard.some(row=>row.some(b=>b.callback_data?.startsWith('ia:'))),false)}});
+test('apply and defer callbacks use shared service and stable request ids for duplicate deliveries',async()=>{const env=await fixture();await env.run(callback('ia:'+ID+':2'));await env.run(callback('ia:'+ID+':2'));const calls=env.calls.filter(c=>c.type==='apply');assert.equal(calls.length,2);assert.deepEqual(calls[0].options,calls[1].options);assert.equal(calls[0].options.revision,2);assert.match(calls[0].options.request_id,/^[0-9a-f-]{36}$/);assert.equal(env.sent[0].method,'answerCallbackQuery');await env.run(callback('il:'+ID+':2','later'));assert.equal(env.calls.filter(c=>c.type==='defer').length,1);assert.equal(env.sent.some(c=>c.method==='sendMessage'),false)});
+test('foreign callback identity cannot read or apply an inbox proposal',async()=>{const env=await fixture(),value=callback('ia:'+ID+':2');value.callback_query.from.id=987654321;await env.run(value);assert.equal(env.calls.filter(c=>c.type!=='config').length,0);assert.equal(env.sent.length,0)});
+test('stale callback does not claim changes were applied',async()=>{const env=await fixture();env.callbackError=true;await env.run(callback('ia:'+ID+':2'));assert.match(env.sent[0].body.text,/изменилась/);assert.doesNotMatch(env.sent[0].body.text,/Изменения применены/)});
+test('legacy task callback retains owner-matching database lookup',async()=>{const denied=await fixture();denied.ownerTarget=false;await denied.run(callback('done:'+ID));assert.equal(denied.rpc().length,0);const env=await fixture();await env.run(callback('done:'+ID));assert.match(env.calls.find(c=>c.type==='list').query,/telegram_user_id=eq.123456789/);assert.equal(env.rpc()[0].name,'set_commitment_status');assert.equal(env.rpc()[0].body.p_status,'completed')});
+test('old correction callback no longer starts a hidden next-message overwrite mode',async()=>{const env=await fixture();await env.run(callback('fix:'+ID));assert.equal(env.rpc().length,0);assert.match(env.sent[0].body.text,/исправьте нужные задачи/)});
+test('invalid and oversized updates never reach capture or processing',async()=>{const env=await fixture();assert.equal((await env.run({update_id:-1,message:update().message})).status,400);assert.equal((await env.run(update({text:'x'.repeat(132000)}))).status,413);assert.equal(env.rpc().length,0)});
+test('forwarded source retains original message date separately from forwarding date',async()=>{for(const fields of [{forward_origin:{type:'hidden_user',date:Date.parse('2026-09-24T18:00:00Z')/1000}},{forward_date:Date.parse('2026-09-24T18:00:00Z')/1000}]){const env=await fixture();await env.run(update({...fields,date:Date.parse('2026-09-29T18:00:00Z')/1000}));const meta=env.rpc()[0].body.p_source_meta;assert.equal(meta.original_date,'2026-09-24T18:00:00.000Z');assert.equal(meta.message_date,'2026-09-29T18:00:00.000Z');assert.equal(meta.forwarded,true)}});
+test('unknown forwarded date is explicit, never invented from forwarding time',async()=>{const env=await fixture();await env.run(update({forward_origin:{type:'hidden_user'}}));const meta=env.rpc()[0].body.p_source_meta;assert.equal(meta.forwarded,true);assert.equal(meta.original_date,null)});
+test('oversized callback revision is ignored before shared service',async()=>{const env=await fixture();await env.run(callback('ia:'+ID+':2147483647'));assert.equal(env.calls.some(c=>c.type==='apply'),false);assert.equal(env.sent.length,0)});
+test('task card shows resolved project participant and deadline before direct apply',async()=>{const env=await fixture();env.proposal={questions:[],changes:[{kind:'task_create',text:'Отправить размеры',direction:'from_me',project_id:ID,project_title:'Colryut',participant_id:ID,participant_name:'Алексей',deadline:'2026-10-01',deadline_time:'15:00'}]};await env.run();assert.match(env.sent[0].body.text,/Colryut/);assert.match(env.sent[0].body.text,/Алексей/);assert.match(env.sent[0].body.text,/2026-10-01 15:00/);assert.equal(env.sent[0].body.reply_markup.inline_keyboard[0][0].callback_data,'ia:'+ID+':2')});
+test('updates, truncated proposals and unnamed associations require full dashboard review',async()=>{for(const changes of [[{kind:'task_update',text:'Перенести срок',task_id:ID}],[{kind:'task_create',text:'Задача',project_id:ID}],[{kind:'task_create',text:'x'.repeat(261)}],Array.from({length:7},()=>({kind:'task_create',text:'Задача'}))]){const env=await fixture();env.proposal={questions:[],changes};await env.run();assert.equal(env.sent[0].body.reply_markup.inline_keyboard.some(row=>row.some(b=>b.callback_data?.startsWith('ia:'))),false)}});

@@ -4,24 +4,25 @@
   else root.CoSNavigation = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
-  const SECTIONS = new Set(['today', 'tasks', 'projects', 'notes', 'calendar', 'people']);
+  const SECTIONS = new Set(['today', 'tasks', 'projects', 'notes', 'calendar', 'people', 'inbox']);
   const TABS = new Set(['overview', 'space', 'tasks', 'notes', 'meetings', 'time']);
   const KEY = 'cosNavigation';
   function normalize(route) {
     const section = SECTIONS.has(route?.section) ? route.section : 'today';
-    const projectId = typeof route?.projectId === 'string' && /^[\w-]{1,128}$/.test(route.projectId) ? route.projectId : null;
-    return {section, projectId, tab:projectId && TABS.has(route?.tab) ? route.tab : 'overview', calendarReturn:!!(projectId && route?.calendarReturn)};
+    const projectId = section !== 'inbox' && typeof route?.projectId === 'string' && /^[\w-]{1,128}$/.test(route.projectId) ? route.projectId : null;
+    return {section, projectId, tab:projectId && TABS.has(route?.tab) ? route.tab : 'overview', calendarReturn:!!(projectId && route?.calendarReturn), ...(section === 'inbox' ? {inboxId:typeof route?.inboxId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(route.inboxId) ? route.inboxId.toLowerCase() : null} : {})};
   }
   const routeKey = route => JSON.stringify(normalize(route));
   function readRoute(location) {
     let parts;try { parts = String(location.hash || '').replace(/^#\//, '').split('/').map(decodeURIComponent); } catch { return null; }
     if (parts.length === 1 && SECTIONS.has(parts[0])) return normalize({section:parts[0]});
+    if (parts.length === 2 && parts[0] === 'inbox' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parts[1])) return normalize({section:'inbox', inboxId:parts[1]});
     if (parts.length === 3 && parts[0] === 'projects' && /^[\w-]{1,128}$/.test(parts[1]) && TABS.has(parts[2])) return normalize({section:'projects', projectId:parts[1], tab:parts[2]});
     return null;
   }
   function routeURL(location, route) {
     const r = normalize(route);
-    const hash = r.projectId ? `#/projects/${encodeURIComponent(r.projectId)}/${r.tab}` : `#/${r.section}`;
+    const hash = r.section === 'inbox' && r.inboxId ? `#/inbox/${r.inboxId}` : r.projectId ? `#/projects/${encodeURIComponent(r.projectId)}/${r.tab}` : `#/${r.section}`;
     return location.pathname + location.search + hash;
   }
   function resetScroll(win) {

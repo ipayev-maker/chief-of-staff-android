@@ -1,5 +1,6 @@
 import {ProjectBriefError, getProjectBrief, saveProjectBrief} from './project-brief.mjs';
 import {ParticipantError, createParticipant, updateParticipant} from './participants.mjs';
+import {CommunicationInboxError, createCommunicationInbox} from './communication-inbox.mjs';
 import {APP_ORIGIN, sha256} from '../cos-google-calendar/google.mjs';
 
 const SESSION_COOKIE = '__Host-cos-calendar-session';
@@ -56,6 +57,9 @@ function resource(url) {
   if (!match) fail(404, 'not_found');
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
+  if (path === 'inbox') return {kind: 'inboxList', methods: ['GET']};
+  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|audio))?$/.exec(path);
+  if (inbox) return {kind: 'inbox', id: resourceUuid(inbox[1]), action: inbox[2] || 'get', methods: [!inbox[2] || inbox[2] === 'audio' ? 'GET' : 'POST']};
   if (path === 'participants') return {kind: 'participants', methods: ['POST']};
   let parts = /^participants\/([^/]+)$/.exec(path);
   if (parts) return {kind: 'participant', id: resourceUuid(parts[1]), methods: ['PATCH']};
@@ -239,7 +243,7 @@ function taskResult(result) {
  * authorizes reads/writes. Calendar connection status is deliberately ignored.
  * No caller-controlled email, anonymous key or Google token is accepted here.
  */
-export function createNotesHandler({store, now = () => new Date()}) {
+export function createNotesHandler({store, now = () => new Date(), inbox = createCommunicationInbox({store, now})}) {
   async function authenticate(request) {
     const token = sessionToken(request);
     if (!token) fail(401, 'unauthorized');
@@ -265,6 +269,22 @@ export function createNotesHandler({store, now = () => new Date()}) {
       if (!route.methods.includes(method)) return json({error: 'method_not_allowed'}, 405);
       if (method !== 'GET' && request.headers.get('Origin') !== APP_ORIGIN) fail(403, 'invalid_origin');
       await authenticate(request);
+      if (route.kind === 'inboxList') {
+        const allowed = new Set(['status', 'limit', 'offset']);
+        if ([...url.searchParams.keys()].some(key => !allowed.has(key) || url.searchParams.getAll(key).length !== 1)) fail(400, 'invalid_request');
+        const limit = url.searchParams.get('limit') || '50', offset = url.searchParams.get('offset') || '0';
+        if (!/^[1-9]\d*$/.test(limit) || !/^\d+$/.test(offset)) fail(400, 'invalid_pagination');
+        return json(await inbox.list({status: url.searchParams.get('status') || 'pending', limit: Number(limit), offset: Number(offset)}));
+      }
+      if (route.kind === 'inbox') {
+        if (url.search) fail(400, 'invalid_request');
+        if (route.action === 'audio') {
+          const audio = await inbox.audio(id);
+          if (!(audio instanceof Response)) fail(503, 'voice_unavailable');
+          return audio;
+        }
+        return json(await inbox[route.action](id, method === 'POST' ? await readJson(request) : undefined));
+      }
       if (route.kind === 'participants' || route.kind === 'participant') {
         if (url.search) fail(400, 'invalid_request');
         const data = await readJson(request);
@@ -364,6 +384,7 @@ export function createNotesHandler({store, now = () => new Date()}) {
       if (!current.length) fail(404, 'note_not_found');
       return json({error: 'revision_conflict', note: noteView(current[0])}, 409);
     } catch (error) {
+      if (error instanceof CommunicationInboxError) return json({error: error.code}, error.status);
       if (error instanceof ParticipantError) return json({error: error.code,
         ...(error.participant ? {participant: error.participant} : {})}, error.status);
       if (error instanceof ProjectBriefError) return json({error: error.code}, error.status);
