@@ -43,3 +43,17 @@ confirmed task changes through the existing synchronization mechanism.
 Real user messages and paid transcription are not test fixtures. Preview pages
 use memory-only adapters with external requests disabled and are excluded from
 production builds.
+
+## Telegram receipt regression
+
+The shared store defaults to ordering by `id`. Telegram receipts instead use
+`(chat_id, message_id)`, settings use `singleton`, and project briefs use
+`project_id`. These orders are registered in the store; the webhook also states
+the receipt order explicitly. Invalid `id` ordering caused HTTP 503 before
+capture and then prevented timezone loading after successful transcription.
+`telegram-runtime-regression.test.cjs` exercises the actual runtime, store and
+processing service with strict synthetic validation of these database columns.
+
+Voice failures persist bounded stage/status codes, never provider bodies or
+credential-bearing URLs. Telegram `getFile` paths are validated as safe relative
+paths without assuming a `voice/` directory. Provider and model remain unchanged.

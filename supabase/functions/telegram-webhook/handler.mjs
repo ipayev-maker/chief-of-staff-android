@@ -85,7 +85,8 @@ export function createTelegramWebhook({loadConfig,store,createInbox,sendTelegram
     if(!sourceText)return ok();if(sourceText.length>20000)return json('text_too_long',413);
     try{
       // Preserve already acknowledged messages from older releases as well.
-      const receipts=await store.list('cos_notes_telegram_receipts','select=result_json&chat_id=eq.'+config.telegramOwnerChatId+'&message_id=eq.'+message.message_id);
+      // Receipts have a composite key, not the shared store's default `id`.
+      const receipts=await store.list('cos_notes_telegram_receipts','select=result_json&order=chat_id.asc,message_id.asc&chat_id=eq.'+config.telegramOwnerChatId+'&message_id=eq.'+message.message_id);
       if(receipts.length)return ok();
       const sentAt=Number.isSafeInteger(message.date)&&message.date>0?new Date(message.date*1000):null;
       const refDate=sentAt&&Number.isFinite(+sentAt)?sentAt.toISOString():now().toISOString();

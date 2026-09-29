@@ -9,6 +9,10 @@ const ORDERS = Object.freeze({
   cos_calendar_sessions: 'token_hash.asc',
   cos_calendar_bindings: 'connection_key.asc,source_kind.asc,source_id.asc',
   cos_calendar_lock: 'id.asc',
+  // Shared inbox tables whose primary key is not a generic `id` column.
+  cos_notes_telegram_receipts: 'chat_id.asc,message_id.asc',
+  cos_settings: 'singleton.asc',
+  cos_project_briefs: 'project_id.asc',
 });
 
 export class CalendarStoreError extends Error {
