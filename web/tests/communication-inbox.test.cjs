@@ -63,3 +63,49 @@ test('tentative plural promise stays undated even if a model calls the date expl
  const fixture=setup({source,raw:{summary:'',questions:[],changes:[{kind:'task_create',text:'Получить образец',evidence:source,project_id:project,participant_id:null,direction:'to_me',status:'open',date_status:'explicit',date_text:'завтра'}]}});
  const {item}=await createCommunicationInbox(fixture).analyze(id,{revision:1});assert.equal(item.status,'ready');assert.equal(item.proposal.changes[0].deadline,null);assert.ok(item.proposal.questions.some(q=>q.includes('Уточните срок')));
 });
+
+test('reported spoken appointment survives split day/time and applies as a calendar meeting',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);
+ const {projectCalendarRecord}=await import('../calendar/projector.mjs');
+ const source='Завтра с факелом обсудить припак, убрать боковины, чтобы было видно топпер и продукт в 9:15.';
+ const raw={summary:'Запланирована встреча',questions:[],changes:[{kind:'task_create',text:'Завтра в 9:15 обсудить с Факелом припак',evidence:source,date_status:'none',date_text:null}]};
+ const fixture=setup({source,raw});fixture.setRow({source_meta:{message_date:'2026-09-30T16:45:03Z'}});
+ fixture.context.cos_calendar_connection=[{time_zone:'Europe/Moscow'}];
+ const service=createCommunicationInbox(fixture),{item}=await service.analyze(id,{revision:1});
+ const change=item.proposal.changes[0];
+ assert.equal(item.proposal.time_zone,'Europe/Moscow');assert.equal(change.kind,'meeting_create');
+ assert.equal(change.meeting_date,'2026-10-01');assert.equal(change.meeting_time,'09:15');
+ assert.equal(change.deadline,null);assert.equal(change.duration_minutes,30);assert.equal(change.duration_estimated,true);
+ assert.equal(item.proposal.questions.some(q=>q.includes('Уточните срок')),false);
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:[change]}});
+ const actions=fixture.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions;
+ assert.equal(actions.length,1);assert.equal(actions[0].kind,'meeting_create');
+ assert.equal(actions[0].meeting.starts_at,'2026-10-01T06:15:00.000Z');
+ assert.equal(actions[0].meeting.ends_at,'2026-10-01T06:45:00.000Z');
+ const google=projectCalendarRecord('meeting',{...actions[0].meeting,id:change.id,status:'scheduled'},{timeZone:'Europe/Moscow'});
+ assert.equal(google.kind,'event');assert.equal(google.event.start.dateTime,'2026-10-01T06:15:00.000Z');
+ assert.equal(google.event.summary.startsWith('Срок:'),false);
+});
+
+test('meeting time and duration can be edited and cannot be forged into invalid intervals',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);const source='Завтра в 9:15 обсудить припак с Факелом.';
+ const fixture=setup({source,raw:{summary:'',changes:[{kind:'meeting_create',text:'Обсудить припак',evidence:source}]}});
+ fixture.context.cos_calendar_connection=[{time_zone:'Europe/Moscow'}];
+ const service=createCommunicationInbox(fixture),{item}=await service.analyze(id,{revision:1});
+ const proposal={version:1,changes:clone(item.proposal.changes)};proposal.changes[0].duration_minutes=0;
+ await assert.rejects(service.apply(id,{revision:item.revision,request_id:uuid(),proposal}),e=>e.code==='invalid_meeting_time');
+ proposal.changes[0].duration_minutes=45;proposal.changes[0].meeting_time='10:30';
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal});
+ const m=fixture.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].meeting;
+ assert.equal(m.starts_at,'2026-10-01T07:30:00.000Z');assert.equal(m.ends_at,'2026-10-01T08:15:00.000Z');
+ assert.doesNotMatch(m.agenda,/по умолчанию/);
+});
+
+test('a meeting without reliable time remains unselected and needs explicit correction',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);const source='Возможно, встреча с Анной завтра в 9:15.';
+ const fixture=setup({source,raw:{summary:'',changes:[{kind:'meeting_create',text:'Встреча с Анной',evidence:source}]}});
+ const service=createCommunicationInbox(fixture),{item}=await service.analyze(id,{revision:1});
+ assert.equal(item.proposal.changes[0].selected,false);assert.equal(item.proposal.changes[0].meeting_date,null);
+ const proposal={version:1,changes:clone(item.proposal.changes)};proposal.changes[0].selected=true;
+ await assert.rejects(service.apply(id,{revision:item.revision,request_id:uuid(),proposal}),e=>e.code==='invalid_meeting_time');
+});

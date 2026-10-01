@@ -24,10 +24,6 @@ Deno.serve(async (request: Request) => {
       const inbox = createCommunicationInbox({store,
         model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY')}),
         voice: {save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
-        timeZone: async () => {
-          const settings = await store.page('cos_settings', 'select=time_zone&limit=1');
-          return settings[0]?.time_zone || 'Europe/Berlin';
-        },
       });
       handler = createNotesHandler({store, inbox});
     }
