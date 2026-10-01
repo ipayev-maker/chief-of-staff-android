@@ -284,3 +284,18 @@ test('cancelled source retains an uncertain create until a late POST appears and
   assert.equal(env.binding().state,'deleted');assert.equal(env.events.get(lateEvent.id).status,'cancelled');
   assert.equal(env.mutations().filter(call=>call.method==='POST').length,1);assert.equal(env.mutations().filter(call=>call.method==='DELETE').length,1);
 });
+
+test('reminder-only edits update the existing meeting event and read the stored preference',async()=>{
+  const env=await fixture([],[{id:uuid(2),title:'Reminder lifecycle',status:'scheduled',starts_at:'2028-02-29T09:00:00Z',ends_at:'2028-02-29T10:00:00Z',remind_before_minutes:15}]);
+  await env.run();const id=env.binding(2,'meeting').event_id;
+  assert.deepEqual(env.event(2,'meeting').reminders,{useDefault:false,overrides:[{method:'popup',minutes:15}]});
+  for(const minutes of [0,60,null,5]){
+    env.data.meetings[0].remind_before_minutes=minutes;
+    const result=await env.run();assert.equal(result.updated,1);assert.equal(env.binding(2,'meeting').event_id,id);
+    assert.deepEqual(env.event(2,'meeting').reminders,{useDefault:false,overrides:minutes===null?[]:[{method:'popup',minutes}]});
+  }
+  assert.equal(env.mutations().filter(c=>c.method==='POST').length,1);
+  const before=env.mutations().length;assert.equal((await env.run()).unchanged,1);assert.equal(env.mutations().length,before);
+  const reads=env.dbCalls.filter(c=>c.operation==='list'&&c.table==='meetings');
+  assert.ok(reads.length>1);assert.ok(reads.every(c=>new URLSearchParams(c.query).get('select').split(',').includes('remind_before_minutes')));
+});

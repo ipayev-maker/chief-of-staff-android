@@ -125,7 +125,7 @@ test('two meeting opens in the same project keep only the newest selection',asyn
   assert.ok(f.calls.every(call=>!call.method||call.method==='GET'));
 });
 
-test('orphan meeting opens escaped read-only details and supersedes a pending project meeting without writes',async()=>{
+test('orphan meeting opens escaped details with reminder settings and supersedes a pending project meeting without writes',async()=>{
   const f=fixture(),gate=deferred();f.app.S.meetings=[
     {id:'linked',project_id:'project-1',title:'Linked'},
     {id:'orphan',project_id:null,title:'<img src=x onerror=alert(1)>',starts_at:'2026-09-23T09:00:00Z',ends_at:'2026-09-23T10:00:00Z',agenda:'<script>unsafe</script>',meeting_url:'javascript:alert(1)'},
@@ -135,7 +135,7 @@ test('orphan meeting opens escaped read-only details and supersedes a pending pr
   await f.app.openCalendarMeeting('orphan');
   const dialog=f.dialogs.at(-1);
   assert.equal(dialog.open,true);assert.match(dialog.innerHTML,/&lt;img/);assert.match(dialog.innerHTML,/&lt;script&gt;/);
-  assert.doesNotMatch(dialog.innerHTML,/<input|<textarea|<select|javascript:|meetingSave|<script>/);
+  assert.doesNotMatch(dialog.innerHTML,/<input|<textarea|javascript:|meetingSave|<script>/);
   gate.resolve([]);await opening;
   assert.equal(f.app.S.project,null);assert.equal(f.app.S.section,'calendar');assert.equal(dialog.open,true);
   assert.equal(f.workspaces.length,0);assert.ok(f.calls.every(call=>!call.method||call.method==='GET'));
@@ -156,6 +156,7 @@ test('editing a multi-day meeting preserves its custom duration and original end
   f.element('#mDate').value=html.match(/id="mDate" type="date" value="([^"]+)"/)[1];
   f.element('#mStartTime').value=selected('mStartTime');
   f.element('#mDuration').value=duration;
+  f.element('#mReminder').value=selected('mReminder');
   f.element('#mTitle').value='Adjusted title';
   await f.evaluate('saveMeeting()');
   assert.equal(f.calls.length,1);assert.equal(f.calls[0].method,'PATCH');
@@ -163,4 +164,38 @@ test('editing a multi-day meeting preserves its custom duration and original end
   assert.equal(f.calls[0].body.title,'Adjusted title');
   assert.equal(f.calls[0].body.starts_at,'2026-09-23T09:00:00.000Z');
   assert.equal(f.calls[0].body.ends_at,'2026-09-25T09:45:00.000Z');
+});
+
+test('standalone meeting reminder saves zero and disabled without changing appointment times',async()=>{
+  const f=fixture(),meeting={id:'orphan',title:'Meeting',project_id:null,starts_at:'2028-02-29T09:00:00Z',ends_at:'2028-02-29T10:00:00Z',remind_before_minutes:15,reminder_sent_at:'2026-01-01T00:00:00Z'};
+  f.app.S.meetings=[meeting];f.api(async(url,options)=>[{...meeting,...options.body}]);
+  await f.app.openCalendarMeeting(meeting.id);
+  assert.match(f.dialogs.at(-1).innerHTML,/<option value="none">Не напоминать/);
+  for(const [value,expected] of [['0',0],['none',null],['60',60]]){
+    f.element('#calendarMeetingReminder').value=value;
+    await f.element('#calendarMeetingReminderSave').onclick();
+    assert.equal(meeting.remind_before_minutes,expected);
+    assert.deepEqual(plain(f.calls.at(-1).body),{remind_before_minutes:expected,reminder_sent_at:null});
+    assert.equal(f.calls.at(-1).method,'PATCH');assert.equal(f.calls.at(-1).url,'/rest/v1/meetings?id=eq.orphan');
+  }
+  f.api(async()=>{throw Error('offline')});f.element('#calendarMeetingReminder').value='none';
+  await f.element('#calendarMeetingReminderSave').onclick();assert.equal(meeting.remind_before_minutes,60);assert.equal(f.messages.at(-1).type,'error');assert.equal(f.element('#calendarMeetingReminderSave').disabled,false);
+});
+
+test('project editor preserves disabled and custom reminders when saving',async()=>{
+  const f=fixture();f.evaluate('meetingsPage=()=>{}');
+  f.app.S.meeting={id:'meeting-1',status:'scheduled',remind_before_minutes:null};
+  for(const [key,value] of Object.entries({mDate:'2028-02-29',mStartTime:'12:00',mDuration:'30',mTitle:'Meeting',mLocation:'',mUrl:'',mAgenda:'',mNotes:'',mTranscript:''}))f.element('#'+key).value=value;
+  for(const [value,expected] of [['none',null],['0',0],['45',45]]){
+    f.element('#mReminder').value=value;await f.evaluate('saveMeeting()');assert.equal(f.calls.at(-1).body.remind_before_minutes,expected);
+  }
+  assert.match(f.evaluate('meetingReminderOptions(45)'),/<option value="45" selected>за 45 минут/);
+  assert.match(f.evaluate('meetingReminderOptions(null)'),/<option value="none" selected>/);
+});
+
+test('disabled local reminder stays silent while zero fires once at the start',async()=>{
+  const f=fixture();f.evaluate("S.meetings=[{id:'quiet',title:'Quiet',status:'scheduled',starts_at:new Date(Date.now()-1000).toISOString(),ends_at:new Date(Date.now()+3600000).toISOString(),remind_before_minutes:null},{id:'now',title:'Now',status:'scheduled',starts_at:new Date(Date.now()-1000).toISOString(),ends_at:new Date(Date.now()+3600000).toISOString(),remind_before_minutes:0}]");
+  f.api(async(url,options)=>[{id:'now',...options.body}]);
+  await f.evaluate('checkMeetingReminders()');assert.equal(f.calls.length,1);assert.match(f.calls[0].url,/id=eq.now/);assert.equal(f.messages.length,1);
+  await f.evaluate('checkMeetingReminders()');assert.equal(f.calls.length,1);assert.equal(f.messages.length,1);
 });
