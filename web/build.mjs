@@ -8,7 +8,7 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
-for (const name of ['dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css']) {
+for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
 // Same-origin PDF renderer and worker; private documents never go to an external viewer.
@@ -22,6 +22,9 @@ for (const name of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) await cp(new URL
 await cp(new URL('LICENSE', pdfSource), new URL('LICENSE', pdfTarget));
 // A real iframe viewport for manual responsive checks, never emitted in production.
 if (process.env.VERCEL_ENV === 'preview') {
+  await writeFile(new URL('./dist/_design-reference.html', import.meta.url), await readFile(new URL('../docs/design-reference-v2.html', import.meta.url)));
+  const referenceLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_design-reference.html"');
+  await writeFile(new URL('./dist/_design-reference-layout.html', import.meta.url), referenceLayout);
   await writeFile(new URL('./dist/_layout-preview.html', import.meta.url), await readFile(new URL('./tests/responsive-preview.html', import.meta.url)));
   const fixture = (await readFile(new URL('./tests/project-brief-preview.html', import.meta.url), 'utf8')).replace('__BASE_STYLE__', html.match(/<style>[\s\S]*?<\/style>/)?.[0] || '');
   await writeFile(new URL('./dist/_project-brief-preview.html', import.meta.url), fixture);
@@ -29,6 +32,11 @@ if (process.env.VERCEL_ENV === 'preview') {
   await writeFile(new URL('./dist/_project-brief-layout.html', import.meta.url), layout);
   const workflowFixture = await readFile(new URL('./tests/workflow-preview-fixture.js', import.meta.url), 'utf8');
   await writeFile(new URL('./dist/_workflow-preview.html', import.meta.url), html.replace(/\bboot\(\);(?=\s*<\/script>)/, () => workflowFixture));
+  const designData = await readFile(new URL('./tests/design-preview-data.js', import.meta.url), 'utf8');
+  const designFixture = workflowFixture.replace('  const route=initDashboardNavigation();', () => designData+'\n  const route=initDashboardNavigation();');
+  await writeFile(new URL('./dist/_design-preview.html', import.meta.url), html.replace(/\bboot\(\);(?=\s*<\/script>)/, () => designFixture));
+  const designLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_design-preview.html"');
+  await writeFile(new URL('./dist/_design-layout.html', import.meta.url), designLayout);
   const workflowLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_workflow-preview.html"');
   await writeFile(new URL('./dist/_workflow-layout.html', import.meta.url), workflowLayout);
   const inboxFixture = await readFile(new URL('./tests/inbox-preview-fixture.js', import.meta.url), 'utf8');
@@ -40,6 +48,10 @@ if (process.env.VERCEL_ENV === 'preview') {
   const mediaLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_media-preview.html"');
   await writeFile(new URL('./dist/_media-layout.html', import.meta.url), mediaLayout);
 } else {
+  await rm(new URL('./dist/_design-preview.html', import.meta.url), { force: true });
+  await rm(new URL('./dist/_design-layout.html', import.meta.url), { force: true });
+  await rm(new URL('./dist/_design-reference.html', import.meta.url), { force: true });
+  await rm(new URL('./dist/_design-reference-layout.html', import.meta.url), { force: true });
   await rm(new URL('./dist/_inbox-preview.html', import.meta.url), { force: true });
   await rm(new URL('./dist/_inbox-layout.html', import.meta.url), { force: true });
   await rm(new URL('./dist/_workflow-preview.html', import.meta.url), { force: true });

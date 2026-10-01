@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chief of Staff — Сегодня</title>
+<style>
+:root{
+  --c-primary:#2B4D8A;
+  --c-primary-soft:#3A63A8;
+  --c-primary-ghost:rgba(43,77,138,.08);
+  --c-bg:#F5F7FA;
+  --c-surface:#FFFFFF;
+  --c-text:#1E2A3A;
+  --c-text-2:#64748B;
+  --c-text-3:#94A3B8;
+  --c-border:#E8EDF3;
+  --c-border-soft:#F1F4F8;
+  --c-alert:#DC2626;
+  --c-alert-bg:#FEF5F5;
+  --c-alert-border:#FBD5D5;
+  --c-risk:#D97706;
+  --c-risk-bg:#FEF3E2;
+  --c-green:#16A34A;
+  --c-green-bg:#EAF7F0;
+  --sp-1:8px; --sp-2:16px; --sp-3:24px; --sp-4:32px;
+  --radius:14px;
+  --radius-sm:10px;
+  --shadow:0 1px 3px rgba(15,23,42,.06);
+  --shadow-lift:0 6px 20px rgba(15,23,42,.09);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Inter',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:var(--c-bg);
+  color:var(--c-text);
+  font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ===== ЛЕЙАУТ ===== */
+.app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+
+/* ===== САЙДБАР ===== */
+.sidebar{
+  background:linear-gradient(180deg,#2B4D8A 0%,#24406F 100%);
+  color:#fff;display:flex;flex-direction:column;
+  padding:24px 16px;position:sticky;top:0;height:100vh;
+}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 24px}
+.brand__mark{
+  width:36px;height:36px;border-radius:11px;
+  background:linear-gradient(135deg,#4A76C4,#2B4D8A);
+  display:flex;align-items:center;justify-content:center;
+  font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.2);
+}
+.brand__name{font-weight:700;font-size:15px;letter-spacing:-.2px}
+.brand__sub{font-size:11px;color:rgba(255,255,255,.55)}
+
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav a{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 12px;border-radius:10px;
+  color:rgba(255,255,255,.72);text-decoration:none;
+  font-size:14px;font-weight:500;
+  transition:background .15s ease,color .15s ease;
+}
+.nav a:hover{background:rgba(255,255,255,.09);color:#fff}
+.nav a.active{
+  background:rgba(255,255,255,.14);color:#fff;
+  box-shadow:inset 3px 0 0 #9DBBE8;
+}
+.nav a .ico{width:20px;text-align:center;opacity:.9}
+.nav a .count{
+  margin-left:auto;background:rgba(255,255,255,.16);
+  font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;
+}
+
+.sidebar__footer{margin-top:auto;border-top:1px solid rgba(255,255,255,.12);padding-top:16px;display:flex;flex-direction:column;gap:2px}
+.sidebar__footer a{
+  display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:10px;
+  color:rgba(255,255,255,.55);text-decoration:none;font-size:13px;
+  transition:background .15s;
+}
+.sidebar__footer a:hover{background:rgba(255,255,255,.07);color:rgba(255,255,255,.85)}
+
+/* ===== КОНТЕНТ ===== */
+.main{padding:0 var(--sp-4) 48px;max-width:1160px}
+.topbar{
+  position:sticky;top:0;z-index:10;
+  background:rgba(245,247,250,.85);backdrop-filter:blur(8px);
+  margin:0 -32px;padding:16px 32px;
+  display:flex;align-items:center;gap:16px;
+  border-bottom:1px solid transparent;
+}
+.search{
+  flex:1;max-width:420px;display:flex;align-items:center;gap:10px;
+  background:var(--c-surface);border:1px solid var(--c-border);
+  border-radius:999px;padding:9px 16px;
+  color:var(--c-text-3);font-size:13px;
+  transition:border-color .15s, box-shadow .15s;
+}
+.search:focus-within{border-color:var(--c-primary-soft);box-shadow:0 0 0 3px var(--c-primary-ghost)}
+.avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#2B4D8A,#4A76C4);
+  color:#fff;font-size:12px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 2px #fff,0 1px 4px rgba(15,23,42,.15);
+}
+
+/* ===== ЗАГОЛОВОК ===== */
+.page-head{padding:40px 0 8px;position:relative}
+.page-head .eyebrow{
+  font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--c-text-3);margin-bottom:6px;
+}
+.page-head h1{font-size:26px;font-weight:700;letter-spacing:-.4px}
+.page-head p{color:var(--c-text-2);margin-top:4px}
+.page-head__actions{position:absolute;right:0;top:44px}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  border:none;cursor:pointer;font-family:inherit;
+  font-size:13.5px;font-weight:600;
+  padding:10px 18px;border-radius:10px;
+  transition:transform .12s ease, box-shadow .12s ease, background .15s;
+}
+.btn--primary{
+  background:linear-gradient(135deg,#3A63A8,#2B4D8A);color:#fff;
+  box-shadow:0 2px 6px rgba(43,77,138,.35);
+}
+.btn--primary:hover{transform:translateY(-1px);box-shadow:0 5px 14px rgba(43,77,138,.4)}
+.btn--primary:active{transform:translateY(0)}
+.btn--ghost{
+  background:var(--c-surface);color:var(--c-primary);
+  border:1px solid var(--c-border);
+}
+.btn--ghost:hover{border-color:var(--c-primary-soft);background:var(--c-primary-ghost)}
+.btn--link{background:none;color:var(--c-primary);padding:6px 8px;border-radius:8px}
+.btn--link:hover{background:var(--c-primary-ghost)}
+
+/* ===== KPI ===== */
+.kpi-row{
+  display:grid;grid-template-columns:1fr 1fr;gap:16px;
+  margin:24px 0 var(--sp-4);
+}
+.kpi-card{
+  padding:var(--sp-3);border-radius:var(--radius);
+  position:relative;overflow:hidden;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.kpi-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lift)}
+.kpi-card.alert{background:var(--c-alert-bg);border:1px solid var(--c-alert-border)}
+.kpi-card.alert::after{
+  content:'';position:absolute;right:-28px;top:-28px;width:96px;height:96px;
+  border-radius:50%;background:rgba(220,38,38,.07);
+}
+.kpi-card .label{
+  font-size:12px;font-weight:600;letter-spacing:.6px;
+  text-transform:uppercase;color:var(--c-alert);
+  display:flex;align-items:center;gap:8px;
+}
+.kpi-card .label .dot{
+  width:7px;height:7px;border-radius:50%;background:var(--c-alert);
+  box-shadow:0 0 0 3px rgba(220,38,38,.15);
+}
+.kpi-card .value{font-size:34px;font-weight:700;line-height:1.1;color:var(--c-alert)}
+.kpi-card.alert .hint{font-size:12.5px;color:#B45555;margin-top:2px}
+
+.kpi-card.projects{background:var(--c-surface);border:1px solid var(--c-border);box-shadow:var(--shadow)}
+.kpi-card.projects .label{color:var(--c-text-2);letter-spacing:.2px;text-transform:none;font-size:13px}
+.kpi-card.projects .value{font-size:30px;font-weight:700;color:var(--c-primary)}
+.badge-risk{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--c-risk-bg);color:var(--c-risk);
+  padding:4px 10px;border-radius:999px;
+  font-size:12px;font-weight:600;white-space:nowrap;
+}
+.badge-risk::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--c-risk)}
+
+/* ===== СЕКЦИИ ===== */
+.layout{display:grid;grid-template-columns:1fr 320px;gap:var(--sp-3);align-items:start}
+.card{
+  background:var(--c-surface);border:1px solid var(--c-border);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+}
+.card__head{
+  display:flex;align-items:center;gap:10px;
+  padding:18px var(--sp-3) 14px;
+}
+.card__title{font-size:16px;font-weight:700;letter-spacing:-.2px}
+.card__sub{font-size:12.5px;color:var(--c-text-2)}
+.card__spacer{flex:1}
+.pill-count{
+  background:var(--c-primary-ghost);color:var(--c-primary);
+  font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;
+}
+.card__body{padding:0 var(--sp-3) var(--sp-3)}
+
+/* ===== БЛОК «СЕЙЧАС» (пустое состояние) ===== */
+.empty{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  padding:28px 24px;gap:10px;
+}
+.empty__icon{
+  width:52px;height:52px;border-radius:16px;
+  background:linear-gradient(135deg,#EFF4FB,#E3EBF6);
+  display:flex;align-items:center;justify-content:center;font-size:22px;
+  box-shadow:inset 0 0 0 1px rgba(43,77,138,.1);
+}
+.empty__title{font-weight:600;color:var(--c-text)}
+.empty__text{font-size:13px;color:var(--c-text-2);max-width:280px}
+
+/* ===== БЫСТРЫЙ ВВОД ===== */
+.quick{
+  background:var(--c-surface);border:1px solid var(--c-border);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:var(--sp-3);margin-top:var(--sp-2);
+  transition:border-color .15s, box-shadow .15s;
+}
+.quick:focus-within{border-color:var(--c-primary-soft);box-shadow:0 0 0 3px var(--c-primary-ghost)}
+.quick__hint{font-size:12.5px;color:var(--c-text-2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.quick__hint .spark{color:var(--c-primary)}
+.quick textarea{
+  width:100%;border:none;resize:none;outline:none;
+  font-family:inherit;font-size:14px;min-height:64px;
+  color:var(--c-text);background:transparent;
+}
+.quick textarea::placeholder{color:var(--c-text-3)}
+.quick__foot{display:flex;align-items:center;gap:8px;margin-top:8px}
+.mic-btn{
+  width:38px;height:38px;border-radius:10px;border:1px solid var(--c-border);
+  background:var(--c-surface);cursor:pointer;font-size:15px;
+  transition:background .15s,transform .12s;
+}
+.mic-btn:hover{background:var(--c-primary-ghost);transform:scale(1.06)}
+
+/* ===== ТРЕБУЕТ ВНИМАНИЯ ===== */
+.attention{background:var(--c-surface);border:1px solid var(--c-border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.attention .card__head{border-bottom:1px solid var(--c-border-soft)}
+.attention .card__title .num{color:var(--c-alert)}
+.item{
+  position:relative;display:flex;flex-direction:column;gap:6px;
+  padding:16px var(--sp-3) 16px 28px;
+  border-bottom:1px solid var(--c-border-soft);
+  transition:background .15s;
+  animation:fadeUp .35s ease both;
+}
+.item:nth-child(2){animation-delay:.04s}
+.item:nth-child(3){animation-delay:.08s}
+.item:nth-child(4){animation-delay:.12s}
+.item:nth-child(5){animation-delay:.16s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.item:hover{background:#FCFCFD}
+.item::before{
+  content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;
+  border-radius:0 4px 4px 0;background:var(--c-alert);
+}
+.item:hover::before{width:5px}
+.item__meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.item__project{
+  font-size:11.5px;font-weight:600;color:var(--c-primary);
+  background:var(--c-primary-ghost);padding:2px 9px;border-radius:999px;
+}
+.item__overdue{
+  font-size:11.5px;font-weight:600;color:var(--c-alert);
+  background:var(--c-alert-bg);padding:2px 9px;border-radius:999px;
+}
+.item__title{
+  font-weight:600;font-size:14px;letter-spacing:-.1px;
+  color:var(--c-text);cursor:pointer;transition:color .15s;
+}
+.item__title:hover{color:var(--c-primary)}
+.item__desc{font-size:12.5px;color:var(--c-text-2)}
+.item__foot{display:flex;align-items:center;justify-content:space-between;margin-top:2px}
+.item__when{font-size:12px;color:var(--c-text-3);display:flex;align-items:center;gap:6px}
+
+.show-all{
+  width:100%;border:none;background:none;cursor:pointer;
+  padding:14px;font-family:inherit;font-size:13px;font-weight:600;
+  color:var(--c-primary);transition:background .15s;
+}
+.show-all:hover{background:var(--c-primary-ghost)}
+
+/* ===== ПРАВАЯ КОЛОНКА ===== */
+.deadline{display:flex;gap:12px;padding:13px var(--sp-3);border-bottom:1px solid var(--c-border-soft);transition:background .15s}
+.deadline:hover{background:#FCFCFD}
+.deadline:last-child{border-bottom:none}
+.deadline__date{
+  min-width:44px;height:48px;border-radius:10px;
+  background:var(--c-bg);border:1px solid var(--c-border);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+}
+.deadline__date .d{font-size:16px;font-weight:700;color:var(--c-text)}
+.deadline__date .m{font-size:10px;font-weight:600;color:var(--c-text-3);text-transform:uppercase;letter-spacing:.5px}
+.deadline__date--overdue{background:var(--c-alert-bg);border-color:var(--c-alert-border)}
+.deadline__date--overdue .d{color:var(--c-alert)}
+.deadline__body{min-width:0}
+.deadline__title{font-size:13px;font-weight:600;line-height:1.35}
+.deadline__project{font-size:12px;color:var(--c-text-3);margin-top:2px}
+
+/* ===== НИКОДИМ ===== */
+.assistant{
+  margin-top:var(--sp-2);border-radius:var(--radius);
+  background:linear-gradient(150deg,#2B4D8A,#1E3A66);
+  color:#fff;padding:var(--sp-3);position:relative;overflow:hidden;
+}
+.assistant::after{
+  content:'✦';position:absolute;right:-6px;bottom:-16px;
+  font-size:88px;opacity:.08;
+}
+.assistant__head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.assistant__mark{
+  width:34px;height:34px;border-radius:10px;
+  background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:15px;
+}
+.assistant__name{font-weight:700;font-size:14px}
+.assistant__sub{font-size:11px;color:rgba(255,255,255,.55)}
+.assistant p{font-size:13px;color:rgba(255,255,255,.85);margin-bottom:12px;position:relative}
+.assistant__chips{display:flex;flex-wrap:wrap;gap:8px;position:relative}
+.chip{
+  border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);
+  color:#fff;font-family:inherit;font-size:12.5px;font-weight:500;
+  padding:7px 13px;border-radius:999px;cursor:pointer;
+  transition:background .15s,border-color .15s;
+}
+.chip:hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4)}
+
+.divider-note{
+  margin-top:var(--sp-3);font-size:11.5px;color:var(--c-text-3);
+  display:flex;align-items:center;gap:8px;
+}
+.divider-note::before{content:'';width:16px;height:1px;background:var(--c-border)}
+
+@media(max-width:1080px){
+  .layout{grid-template-columns:1fr}
+}
+@media(max-width:820px){
+  .app{grid-template-columns:1fr}
+  .sidebar{display:none}
+  .kpi-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- САЙДБАР -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand__mark">✦</div>
+      <div>
+        <div class="brand__name">Chief of Staff</div>
+        <div class="brand__sub">рабочая среда</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="#" class="active"><span class="ico">☀</span>Сегодня</a>
+      <a href="#"><span class="ico">📥</span>Входящие<span class="count">5</span></a>
+      <a href="#"><span class="ico">✓</span>Задачи</a>
+      <a href="#"><span class="ico">▦</span>Проекты</a>
+      <a href="#"><span class="ico">✎</span>Заметки</a>
+      <a href="#"><span class="ico">📅</span>Календарь</a>
+      <a href="#"><span class="ico">👥</span>Люди</a>
+    </nav>
+    <div class="sidebar__footer">
+      <a href="#"><span class="ico">▦</span>Google Calendar</a>
+      <a href="#"><span class="ico">✦</span>Никодим · ассистент</a>
+    </div>
+  </aside>
+
+  <!-- ОСНОВНАЯ ОБЛАСТЬ -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="search"><span>⌕</span><span>Поиск задач, проектов, людей…</span></div>
+      <div class="card__spacer"></div>
+      <div class="avatar">Н</div>
+    </div>
+
+    <header class="page-head">
+      <div class="eyebrow">Ваш день · пятница, 2 октября</div>
+      <h1>Сегодня</h1>
+      <p>Главное действие, встречи и то, что требует внимания.</p>
+      <div class="page-head__actions">
+        <button class="btn btn--primary">＋ Добавить задачу</button>
+      </div>
+    </header>
+
+    <div class="kpi-row">
+      <article class="kpi-card alert">
+        <span class="label"><span class="dot"></span>Требует внимания</span>
+        <span class="value">13</span>
+        <span class="hint">из них 5 старше недели</span>
+      </article>
+      <article class="kpi-card projects">
+        <span class="label">Активные проекты</span>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="value">7</span>
+          <span class="badge-risk">2 в риске</span>
+        </div>
+      </article>
+    </div>
+
+    <div class="layout">
+      <!-- ЛЕВАЯ КОЛОНКА -->
+      <div>
+        <section class="card">
+          <div class="card__head">
+            <span class="card__title">Сейчас</span>
+            <span class="pill-count">0 задач</span>
+            <div class="card__spacer"></div>
+          </div>
+          <div class="card__body">
+            <div class="empty">
+              <div class="empty__icon">🌤</div>
+              <div class="empty__title">Дальше свободно</div>
+              <div class="empty__text">Задач на сегодня нет. Можно выбрать следующий шаг в списке задач — или разложить входящие через Никодима.</div>
+              <button class="btn btn--ghost">Перейти к задачам →</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="quick">
+          <div class="quick__hint"><span class="spark">✦</span>Быстрый ввод — Никодим разложит сообщение на обязательства; ничего не создаётся без подтверждения.</div>
+          <textarea placeholder="Напишите или продиктуйте, что произошло…"></textarea>
+          <div class="quick__foot">
+            <button class="btn btn--primary">Разобрать</button>
+            <button class="mic-btn" title="Продиктовать">🎙</button>
+            <div class="card__spacer"></div>
+            <span style="font-size:11.5px;color:var(--c-text-3)">⌘ + Enter</span>
+          </div>
+        </section>
+
+        <section class="attention" style="margin-top:var(--sp-2)">
+          <div class="card__head">
+            <span class="card__title">Требует внимания <span class="num">· 13</span></span>
+            <div class="card__spacer"></div>
+            <button class="btn btn--link">Все →</button>
+          </div>
+
+          <div class="item">
+            <div class="item__meta">
+              <span class="item__project">Иль де Боте осень'26</span>
+              <span class="item__overdue">срок прошёл 9 сен</span>
+            </div>
+            <div class="item__title">Получить бриф от де Боте</div>
+            <div class="item__desc">Уточните результат или новый срок.</div>
+            <div class="item__foot">
+              <span class="item__when">◷ просрочено на 23 дня</span>
+              <button class="btn btn--link">Разобрать срок →</button>
+            </div>
+          </div>
+
+          <div class="item">
+            <div class="item__meta">
+              <span class="item__project">Без проекта</span>
+              <span class="item__overdue">срок прошёл 18 сен</span>
+            </div>
+            <div class="item__title">Подготовить и предоставить ШК и навигацию для комплектов ПЛ 4х100</div>
+            <div class="item__desc">Уточните результат или новый срок.</div>
+            <div class="item__foot">
+              <span class="item__when">◷ просрочено на 14 дней</span>
+              <button class="btn btn--link">Разобрать срок →</button>
+            </div>
+          </div>
+
+          <div class="item">
+            <div class="item__meta">
+              <span class="item__project">Без проекта</span>
+              <span class="item__overdue">срок прошёл 28 сен</span>
+            </div>
+            <div class="item__title">Проверить пропуска на компанию</div>
+            <div class="item__desc">Уточните результат или новый срок.</div>
+            <div class="item__foot">
+              <span class="item__when">◷ просрочено на 4 дня</span>
+              <button class="btn btn--link">Разобрать срок →</button>
+            </div>
+          </div>
+
+          <div class="item">
+            <div class="item__meta">
+              <span class="item__project">Интершарм ТО</span>
+              <span class="item__overdue">срок прошёл 30 сен, 11:10</span>
+            </div>
+            <div class="item__title">Созвониться с Юрием и пройтись по всем деталям по выставке</div>
+            <div class="item__desc">Уточните результат или новый срок.</div>
+            <div class="item__foot">
+              <span class="item__when">◷ вчера, 11:10</span>
+              <button class="btn btn--link">Разобрать срок →</button>
+            </div>
+          </div>
+
+          <div class="item">
+            <div class="item__meta">
+              <span class="item__project">Интершарм</span>
+              <span class="item__overdue">срок прошёл 30 сен, 11:30</span>
+            </div>
+            <div class="item__title">Пропушить подписание доверенности для Diamond Group (ответственная Юля Кухаренко) — до 12:00</div>
+            <div class="item__desc">Уточните результат или новый срок.</div>
+            <div class="item__foot">
+              <span class="item__when">◷ вчера, 11:30</span>
+              <button class="btn btn--link">Разобрать срок →</button>
+            </div>
+          </div>
+
+          <button class="show-all">Показать все (13) ↓</button>
+        </section>
+      </div>
+
+      <!-- ПРАВАЯ КОЛОНКА -->
+      <aside>
+        <section class="card">
+          <div class="card__head">
+            <span class="card__title">Ближайшие дедлайны</span>
+          </div>
+          <div>
+            <div class="deadline">
+              <div class="deadline__date deadline__date--overdue"><span class="d">30</span><span class="m">сен</span></div>
+              <div class="deadline__body">
+                <div class="deadline__title">Доверенность Diamond Group</div>
+                <div class="deadline__project">Интершарм · просрочено</div>
+              </div>
+            </div>
+            <div class="deadline">
+              <div class="deadline__date"><span class="d">03</span><span class="m">окт</span></div>
+              <div class="deadline__body">
+                <div class="deadline__title">Смета на комплекты ПЛ 4х100</div>
+                <div class="deadline__project">Без проекта</div>
+              </div>
+            </div>
+            <div class="deadline">
+              <div class="deadline__date"><span class="d">07</span><span class="m">окт</span></div>
+              <div class="deadline__body">
+                <div class="deadline__title">Бриф следующего этапа</div>
+                <div class="deadline__project">Иль де Боте осень'26</div>
+              </div>
+            </div>
+            <div class="deadline">
+              <div class="deadline__date"><span class="d">14</span><span class="m">окт</span></div>
+              <div class="deadline__body">
+                <div class="deadline__title">Подготовка стендов</div>
+                <div class="deadline__project">Интершарм ТО</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="assistant">
+          <div class="assistant__head">
+            <div class="assistant__mark">✦</div>
+            <div>
+              <div class="assistant__name">Никодим</div>
+              <div class="assistant__sub">вся система</div>
+            </div>
+          </div>
+          <p>Работаю по структуре Chief of Staff: задачи, сроки, ожидания и связи.</p>
+          <div class="assistant__chips">
+            <button class="chip">Что просрочено?</button>
+            <button class="chip">Что ждём от других?</button>
+            <button class="chip">Что блокирует проект?</button>
+          </div>
+        </section>
+
+        <div class="divider-note">«Через неделю» скрывает вопрос о проекте только на этом устройстве</div>
+      </aside>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>

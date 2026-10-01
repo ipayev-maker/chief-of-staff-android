@@ -190,3 +190,12 @@ test('render defers and restores projects without invoking project mutations', (
   click(element, { attentionOpen: 'project:p' });
   assert.deepEqual(opens, [['p', 'project_state']]);
 });
+
+
+test('summary counts all visible signals, not just the collapsed rows, and updates with deferrals',()=>{
+  const element=container(),summary=[],store=attention.createDeferralStore(null);
+  attention.render(element,{projects:[project('p')],tasks:Array.from({length:8},(_,i)=>task(`late-${i}`,{deadline:'2026-09-01'})),now:NOW,deferralStore:store,onSummary:value=>summary.push(value)});
+  assert.deepEqual(summary.at(-1),{count:9,overdue:8});
+  click(element,{attentionDefer:'project:p'});assert.deepEqual(summary.at(-1),{count:8,overdue:8});
+  click(element,{attentionRestore:'project:p'});assert.deepEqual(summary.at(-1),{count:9,overdue:8});
+});
