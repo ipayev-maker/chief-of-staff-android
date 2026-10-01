@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       meetings:example?[row('meeting',{title:'Согласовать конструкцию с заказчиком',starts_at:at(1),ends_at:new Date(now.getTime()+86400000+3600000).toISOString(),status:'scheduled',location:'Онлайн'})]:[],
       participants:[{id:'supplier',name:'Алексей · производство'}],
       requestNotes:async()=>({notes:example?[row('call',{title:'После звонка с производством',plain_text:'Материал есть на складе. Срок образца подтвердят завтра после проверки загрузки цеха.',source:'telegram',created_at:at(-0.1)})]:[],nextOffset:null}),
-      request:async()=>({project_id:id,revision:1,document:example?{current_state:'Образец в работе. Сведения из прежнего обзора.'}:{},history:[]}),
+      request:async()=>({project_id:id,revision:1,document:{...CoSProjectBrief.emptyDocument(),...(example?{current_state:'Образец в работе. Сведения из прежнего обзора.'}:{})},history:[]}),
       onTask:key=>action('Открыта задача: '+key),onNote:key=>action('Открыта заметка с медиа: '+key),onQuickNote:note=>action('Открыта заметка Telegram: '+note.title),onMeeting:key=>action('Открыта встреча: '+key),onCreateTask:()=>action('Создание задачи'),onOpenTab:tab=>action('Открыта вкладка: '+tab)
     });
   }
