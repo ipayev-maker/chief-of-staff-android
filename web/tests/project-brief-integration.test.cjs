@@ -139,3 +139,18 @@ test('project overview still opens when the optional brief bundle is absent',asy
   assert.equal(await f.app.openProject('project-1'),true);assert.match(f.select('#wb').innerHTML,/Не удалось загрузить экран/);
   await f.tab('tasks');assert.equal(f.views.at(-1),'tasks');assert.equal(f.app.S.project.id,'project-1');assert.ok(f.requests.every(call=>!call.method));
 });
+
+test('automatic overview loads quick notes scoped to the mounted project',async()=>{
+  const f=fixture(),mount=f.mount();assert.equal(mount.options.automatic,true);
+  f.app.S.project=f.app.S.projects[1];await mount.options.requestNotes();
+  assert.equal(f.requests[0].url,'?archived=false&limit=20&offset=0&project_id=project-1');assert.ok(!f.requests[0].method);
+});
+
+test('automatic overview opens an exact quick note and rejects foreign or stale callbacks',()=>{
+  const f=fixture(),mount=f.mount(),note={id:'quick',project_id:'project-1',title:'Call',plain_text:'Send drawing',revision:3,source:'telegram'};
+  mount.options.onQuickNote({...note,project_id:'project-2'});mount.options.onQuickNote({...note,archived_at:'2026-10-01'});mount.options.onOpenTab('invalid');
+  assert.equal(f.app.S.tab,'overview');
+  mount.options.onQuickNote(note);assert.equal(f.app.S.tab,'notes');assert.equal(f.app.S.projectNoteKind,'quick');assert.equal(f.app.QN.draft.id,'quick');assert.equal(f.app.QN.draft.revision,3);assert.equal(f.app.QN.draft.plain_text,'Send drawing');assert.equal(f.requests.length,0);
+  mount.options.onOpenTab('meetings');assert.equal(f.app.S.tab,'notes');
+  const fresh=f.mount();fresh.options.onOpenTab('meetings');assert.equal(f.app.S.tab,'meetings');
+});

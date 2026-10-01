@@ -62,16 +62,16 @@
     }
     return '';
   }
-  function projectRows(rows, projectId) {
+  function projectRows(rows, projectId, identity = row => text(row.id)) {
     const seen = new Set();
     return array(rows).filter(row => {
-      if (!row || !row.id || text(row.project_id) !== text(projectId) || row.deleted_at || seen.has(text(row.id))) return false;
-      seen.add(text(row.id)); return true;
+      if (!row || !row.id || text(row.project_id) !== text(projectId) || row.deleted_at || seen.has(identity(row))) return false;
+      seen.add(identity(row)); return true;
     });
   }
   function buildModel({ project = {}, tasks = [], notes = [], meetings = [], participants = [], now = Date.now() } = {}, snapshot = null) {
     const taskRows = projectRows(tasks, project.id), active = taskRows.filter(task => !['completed', 'cancelled'].includes(task.status));
-    const noteRows = projectRows(array(notes).map(row => row?.note ? { ...row.note, kind: row.kind } : row), project.id).filter(note => !note.archived_at);
+    const noteRows = projectRows(array(notes).map(row => row?.note ? { ...row.note, kind: row.kind } : row), project.id, row => (row.kind || 'project') + ':' + text(row.id)).filter(note => !note.archived_at);
     const meetingRows = projectRows(meetings, project.id).filter(meeting => meeting.status !== 'cancelled');
     const people = new Map(array(participants).filter(Boolean).map(person => [text(person.id), text(person.name)]));
     const waiting = active.filter(task => task.direction === 'to_me').map(task => ({ ...task, person: people.get(text(task.participant_id)) || '' }));
@@ -180,7 +180,66 @@
   function draftText(document, title) {
     return [`Проект: ${title}`, ...Object.keys(limits).map(key => `${labels[key]}\n${document[key] || '—'}`), `Дата проверки: ${document.checkpoint_on || 'не назначена'}`, ...array(document.entries).map(entry => `${kinds[entry.kind]}${entry.status === 'resolved' ? ' · закрыто' : ''}\n${entry.text}${entry.person ? '\nУчастник: ' + entry.person : ''}${entry.review_on ? '\nВернуться: ' + entry.review_on : ''}${entry.source ? '\nОснование: ' + entry.source : ''}`)].join('\n\n');
   }
+  function taskDeadline(task) {
+    const precise=timestamp(task.deadline_at);
+    if(precise!==null)return precise;
+    return validDay(task.deadline)?new Date(task.deadline+'T23:59:59.999').getTime():Infinity;
+  }
+  function automaticModel(options={}, snapshot=null) {
+    const model=buildModel(options,snapshot),now=options.now instanceof Date?options.now.getTime():typeof options.now==='number'?options.now:options.now?Date.parse(options.now):Date.now();
+    const people=new Map(array(options.participants).map(p=>[text(p?.id),text(p?.name)]));
+    const byDeadline=(a,b)=>taskDeadline(a)-taskDeadline(b)||(timestamp(b.updated_at||b.created_at)||0)-(timestamp(a.updated_at||a.created_at)||0)||text(a.id).localeCompare(text(b.id));
+    const active=model.active.filter(t=>t.status!=='paused').map(t=>({...t,person:people.get(text(t.participant_id))||'',overdue:taskDeadline(t)<now})).sort(byDeadline);
+    return {...model,active,actions:active.filter(t=>t.direction!=='to_me'),waiting:active.filter(t=>t.direction==='to_me'),paused:model.active.filter(t=>t.status==='paused'),overdue:active.filter(t=>t.overdue),
+      recentNotes:[...model.notes].sort((a,b)=>(timestamp(b.updated_at||b.created_at)||0)-(timestamp(a.updated_at||a.created_at)||0)),
+      upcoming:model.scheduled.filter(m=>m.status!=='completed'&&timestamp(m.starts_at)!==null).sort((a,b)=>timestamp(a.starts_at)-timestamp(b.starts_at))};
+  }
+  function renderAutomatic(model,state={}) {
+    const sourceButton=(label,action,id)=>button(escape(label),action,`data-pb-id="${escape(id)}"`);
+    const taskRow=t=>{
+      const deadline=timestamp(t.deadline_at)!==null?timeLabel(t.deadline_at):validDay(t.deadline)?dayLabel(t.deadline):'';
+      const check=timestamp(t.next_check_at)!==null?timeLabel(t.next_check_at):validDay(t.next_check_on)?dayLabel(t.next_check_on):'';
+      return `<li class="po-task${t.overdue?' po-overdue':''}">${sourceButton(t.description||'Задача без названия','task',t.id)}<div class="po-task-meta">${t.person?`<span>${escape(t.person)}</span>`:t.direction==='to_me'?'<span>Участник не указан</span>':''}${deadline?`<span class="${t.overdue?'po-late':''}">${t.overdue?'Просрочено · ':'Срок: '}${escape(deadline)}</span>`:'<span>Без срока</span>'}${check?`<span>Проверить: ${escape(check)}</span>`:''}</div></li>`;
+    };
+    const taskSection=(title,rows,empty)=>`<section class="po-section"><header><h3>${title}</h3><span>${rows.length}</span></header>${rows.length?`<ul class="po-list">${rows.slice(0,6).map(taskRow).join('')}</ul>`:`<p class="po-empty">${empty}</p>`}${rows.length>6?button('Все задачи проекта →','tab','data-pb-tab="tasks"'):''}</section>`;
+    const notes=model.recentNotes.slice(0,5).map(n=>`<li class="po-note">${sourceButton(n.title||text(n.plain_text).split('\n')[0].slice(0,100)||'Заметка без названия',n.kind==='quick'?'quick-note':'note',n.id)}${n.plain_text?`<p>${escape(text(n.plain_text).replace(/\s+/g,' ').slice(0,180))}${text(n.plain_text).length>180?'…':''}</p>`:''}<span class="pb-meta">${n.kind==='quick'?(n.source==='telegram'?'Telegram':'Заметка'):'Заметка с медиа'}${timeLabel(n.updated_at||n.created_at)?' · '+escape(timeLabel(n.updated_at||n.created_at)):''}</span></li>`).join('');
+    const meetings=model.upcoming.slice(0,4).map(m=>`<li class="po-meeting"><time>${escape(timeLabel(m.starts_at))}</time>${sourceButton(m.title||'Встреча','meeting',m.id)}${m.location?`<span class="pb-meta">${escape(m.location)}</span>`:''}</li>`).join('');
+    const doc=model.document,hasSaved=Object.keys(limits).some(k=>doc[k].trim())||doc.entries.length;
+    const saved=hasSaved?`<details class="po-saved"><summary>Ранее сохранённые сведения</summary><dl>${Object.keys(limits).filter(k=>doc[k].trim()).map(k=>`<dt>${labels[k]}</dt><dd>${escape(doc[k])}</dd>`).join('')}${doc.checkpoint_on?`<dt>Дата из прежнего обзора</dt><dd>${escape(dayLabel(doc.checkpoint_on))}</dd>`:''}</dl>${doc.entries.length?`<ul class="pb-entries">${doc.entries.map(entryHTML).join('')}</ul>`:''}</details>`:'';
+    const noteStatus=state.notesLoading?'<p class="po-load" role="status">Загружаю остальные заметки…</p>':state.notesError?`<p class="po-load">${state.notesAuth?'Заметки из Telegram и быстрые заметки доступны после входа.':'Не удалось загрузить быстрые заметки. Показаны доступные записи проекта.'}</p>${button(state.notesAuth?'Войти для загрузки заметок':'Повторить загрузку заметок',state.notesAuth?'login':'reload-notes')}`:'';
+    return `<section class="pb-overview po-overview" aria-label="Обзор проекта"><header class="po-head"><div><h2>Обзор проекта</h2><p>Задачи, ожидания и последние записи.</p></div><button type="button" class="btn primary" data-pb-action="create-task">＋ Добавить задачу</button></header><div class="po-counts"><span>В работе <b>${model.actions.length}</b></span><span>Ждём от других <b>${model.waiting.length}</b></span>${model.overdue.length?`<span class="po-late">Просрочено <b>${model.overdue.length}</b></span>`:''}${model.paused.length?`<span>На паузе <b>${model.paused.length}</b></span>`:''}</div><div class="po-columns"><div class="po-main">${taskSection('Что сделать',model.actions,'Открытых задач нет.')}${taskSection('Ждём от других',model.waiting,'Ожиданий в задачах нет.')}${model.paused.length?`<details class="po-saved"><summary>Задачи на паузе · ${model.paused.length}</summary><ul class="po-list">${model.paused.map(taskRow).join('')}</ul></details>`:''}</div><aside class="po-side"><section class="po-section"><header><h3>Ближайшие встречи</h3>${button('Все →','tab','data-pb-tab="meetings"')}</header>${meetings?`<ul class="po-list">${meetings}</ul>`:'<p class="po-empty">Предстоящих встреч нет.</p>'}</section><section class="po-section"><header><h3>Последние записи</h3>${button('Все →','tab','data-pb-tab="notes"')}</header>${notes?`<ul class="po-list">${notes}</ul>`:!state.notesLoading&&!state.notesError?'<p class="po-empty">Записей пока нет.</p>':''}${noteStatus}${state.notesMore?'<p class="po-load">Последние быстрые заметки; полный список — во вкладке «Заметки».</p>':''}</section></aside></div>${saved}</section>`;
+  }
+  function mountAutomatic(container,options={}) {
+    if(!container||!options.project?.id)throw Error('Не задан проект.');
+    let disposed=false,snapshot=null,notes=[],notesLoading=false,notesError=false,notesAuth=false,notesMore=false;
+    const model=()=>automaticModel({...options,notes:[...array(options.notes).map(n=>({...n,kind:'project'})),...notes.map(n=>({...n,kind:'quick'}))]},snapshot);
+    function draw(){if(!disposed)container.innerHTML=renderAutomatic(model(),{notesLoading,notesError,notesAuth,notesMore});}
+    async function loadNotes(){
+      if(disposed||notesLoading||!options.requestNotes)return;
+      notesLoading=true;notesError=false;notesAuth=false;draw();
+      try{const result=await options.requestNotes();if(disposed)return;if(!Array.isArray(result?.notes))throw Error('Invalid notes');notes=projectRows(result.notes,options.project.id).filter(n=>!n.archived_at);notesMore=Number.isInteger(result.nextOffset);}
+      catch(error){if(!disposed){notesError=true;notesAuth=error?.status===401;}}
+      finally{if(!disposed){notesLoading=false;draw();}}
+    }
+    container.onclick=event=>{
+      const target=event.target.closest('[data-pb-action]');if(!target||target.disabled||disposed||!container.contains(target))return;
+      const action=target.dataset.pbAction,id=target.dataset.pbId,current=model();
+      if(action==='create-task')return options.onCreateTask?.();
+      if(action==='tab'&&['tasks','notes','meetings'].includes(target.dataset.pbTab))return options.onOpenTab?.(target.dataset.pbTab);
+      if(action==='reload-notes')return void loadNotes();
+      if(action==='login')return options.onLogin?.();
+      const records={task:current.tasks,note:current.notes.filter(n=>n.kind!=='quick'),'quick-note':current.notes.filter(n=>n.kind==='quick'),meeting:current.meetings};
+      const row=records[action]?.find(row=>text(row.id)===id);if(!row)return;
+      if(action==='quick-note')return options.onQuickNote?.(row);
+      ({task:options.onTask,note:options.onNote,meeting:options.onMeeting})[action]?.(id);
+    };
+    draw();void loadNotes();
+    if(options.request)Promise.resolve().then(()=>options.request()).then(result=>{if(!disposed){snapshot=assertSnapshot(result,options.project.id);draw();}}).catch(()=>{});
+    return {hasDraft:()=>false,isBusy:()=>false,canLeave:()=>true,dispose(){disposed=true;container.onclick=null;}};
+  }
+
   function mount(container, options = {}) {
+    if(options.automatic)return mountAutomatic(container,options);
     if (!container || !options.project?.id || typeof options.request !== 'function') throw Error('Не задан проект или источник обзора.');
     const projectId = text(options.project.id), documentNode = container.ownerDocument || globalThis.document;
     const view = documentNode?.defaultView || globalThis;
@@ -367,5 +426,5 @@
       }
     };
   }
-  return { mount, emptyDocument, validDay, dayLabel, normalizedDocument, validateDocument, buildModel, createSession, dirty, prepareSubmission, parseStoredSession, serializeSession, assertSnapshot, renderOverview, draftText };
+  return { mount, mountAutomatic, automaticModel, renderAutomatic, emptyDocument, validDay, dayLabel, normalizedDocument, validateDocument, buildModel, createSession, dirty, prepareSubmission, parseStoredSession, serializeSession, assertSnapshot, renderOverview, draftText };
 });
