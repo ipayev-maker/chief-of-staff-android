@@ -177,3 +177,47 @@ test('opening an attention task cancels the project still loading behind the vis
   assert.equal(f.element('#main').innerHTML,'Current task edit');assert.equal(f.renders.length,rendersAfterTask);
   assert.equal(f.workspaces.length,0);assert.ok(f.calls.every(call=>!call.method));
 });
+
+
+test('today overview uses active projects and current task states with independently sorted upcoming deadlines',()=>{
+  const f=fixture();f.app.S.projects.push({id:'paused',status:'paused',risk_level:'red'},{id:'risk',status:'active',risk_level:'yellow'});
+  f.app.S.tasks=[
+    {id:'today',status:'open',project_id:'project-1',planned_on:'2026-10-02',deadline:'2026-10-02'},
+    {id:'tomorrow',status:'open',deadline:'2026-10-03'},
+    {id:'late',status:'open',deadline_at:'2026-10-02T09:00:00'},
+    {id:'closed',status:'completed',deadline:'2026-10-02',planned_on:'2026-10-02'},
+    {id:'inactive',status:'open',project_id:'paused',deadline:'2026-10-02'},
+    {id:'paused-task',status:'paused',deadline:'2026-10-02'},
+    {id:'deleted',status:'open',deleted_at:'2026-10-01',deadline:'2026-10-02'},
+  ];
+  const result=plain(f.evaluate("todayOverview(new Date('2026-10-02T12:00:00'))"));
+  assert.deepEqual(result.activeProjects.map(p=>p.id),['project-1','risk']);
+  assert.deepEqual(result.riskProjects.map(p=>p.id),['risk']);
+  assert.deepEqual(result.tasks.map(t=>t.id),['today']);
+  assert.deepEqual(result.deadlines.map(t=>t.id),['today','tomorrow']);
+});
+
+test('today meetings include ongoing meetings and exclude finished, cancelled and other days',()=>{
+  const f=fixture();f.app.S.meetings=[
+    {id:'next',starts_at:'2026-10-02T14:00:00'},
+    {id:'ongoing',starts_at:'2026-10-02T11:30:00',ends_at:'2026-10-02T12:30:00'},
+    {id:'past',starts_at:'2026-10-02T09:00:00'},
+    {id:'tomorrow',starts_at:'2026-10-03T13:00:00'},
+    {id:'cancelled',starts_at:'2026-10-02T14:00:00',status:'cancelled'},
+    {id:'completed',starts_at:'2026-10-02T14:00:00',status:'completed'},
+  ];
+  assert.deepEqual(plain(f.evaluate("todayOverview(new Date('2026-10-02T12:00:00')).meetings.map(m=>m.id)")),['ongoing','next']);
+});
+
+test('today meetings open the project meeting editor without setting calendar return, or standalone details',async()=>{
+  const f=fixture();f.app.S.meetings=[{id:'project-meeting',project_id:'project-1',title:'Project meeting'},{id:'standalone',title:'Standalone'}];
+  await f.evaluate("openTodayMeeting('project-meeting')");
+  assert.equal(f.app.S.project.id,'project-1');assert.equal(f.app.S.tab,'meetings');assert.equal(f.app.S.meeting.id,'project-meeting');assert.equal(f.app.S.calendarReturn,false);
+  await f.evaluate("openTodayMeeting('standalone')");assert.equal(f.dialogs.length,1);assert.match(f.dialogs[0].innerHTML,/Standalone/);
+});
+
+test('today attention metric follows the rendered summary',()=>{
+  const f=fixture();f.app.todayPage();const summarize=f.renders.at(-1).options.onSummary;
+  summarize({count:7,overdue:3});assert.equal(f.element('#todayAttentionCount').textContent,'7');assert.match(f.element('#todayAttentionHint').textContent,/3/);
+  summarize({count:0,overdue:0});assert.equal(f.element('#todayAttentionCount').textContent,'0');assert.doesNotMatch(f.element('#todayAttentionHint').textContent,/Просроченных/);
+});
