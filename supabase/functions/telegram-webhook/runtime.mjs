@@ -10,7 +10,7 @@ export function createTelegramRuntime({url,serviceKey,botToken,openRouterKey,fet
   const model=createInboxModel({openRouterKey,fetchImpl});
   return {
     store,now,loadConfig:()=>store.rpc('cos_notes_get_config'),
-    createInbox:config=>createCommunicationInbox({store,model,now,timeZone:config.time_zone||config.timeZone||config.timezone,voice:{
+    createInbox:config=>createCommunicationInbox({store,model,now,voice:{
       save:args=>voice.save({...args,ownerId:config.telegramOwnerUserId}),
       transcribe:args=>voice.transcribe({...args,ownerId:config.telegramOwnerUserId}),
       read:args=>voice.read({...args,ownerId:config.telegramOwnerUserId})

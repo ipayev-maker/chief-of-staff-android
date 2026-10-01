@@ -41,6 +41,7 @@ async function fixture({existingReceipt=false}={}){
       assert.equal(url.searchParams.get('order'),'singleton.asc');
       return json([{time_zone:'Europe/Berlin'}],200,{'Content-Range':'0-0/1'});
     }
+    if(path==='/rest/v1/cos_calendar_connection')return json([]);
     if(path==='/rest/v1/cos_project_briefs'){
       assert.equal(url.searchParams.get('order'),'project_id.asc');
       return json([]);

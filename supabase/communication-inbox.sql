@@ -294,7 +294,7 @@ declare
   fingerprint text;
   one jsonb;
   before_value jsonb;
-  results jsonb:=jsonb_build_object('tasks','[]'::jsonb,'briefs','[]'::jsonb,'changes','[]'::jsonb);
+  results jsonb:=jsonb_build_object('tasks','[]'::jsonb,'meetings','[]'::jsonb,'briefs','[]'::jsonb,'changes','[]'::jsonb);
   result jsonb;
 begin
   perform public.cos_inbox_require_service();
@@ -335,6 +335,23 @@ begin
       if (select count(*) from jsonb_object_keys(action))<>3 or jsonb_typeof(action->'task') is distinct from 'object' then
         raise exception using errcode='PT400',message='invalid_task_create_action';
       end if;
+    elsif kind='meeting_create' then
+      if (select count(*) from jsonb_object_keys(action))<>3 or jsonb_typeof(action->'meeting') is distinct from 'object'
+        or not (action->'meeting' ?& array['title','project_id','starts_at','ends_at','agenda'])
+        or (select count(*) from jsonb_object_keys(action->'meeting'))<>5
+        or jsonb_typeof(action->'meeting'->'title') is distinct from 'string'
+        or length(btrim(action->'meeting'->>'title')) not between 1 and 2000
+        or jsonb_typeof(action->'meeting'->'agenda') is distinct from 'string'
+        or length(action->'meeting'->>'agenda')>5000
+        or jsonb_typeof(action->'meeting'->'starts_at') is distinct from 'string'
+        or jsonb_typeof(action->'meeting'->'ends_at') is distinct from 'string'
+        or action->'meeting'->>'starts_at' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,6})?Z$'
+        or action->'meeting'->>'ends_at' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,6})?Z$'
+        or (action->'meeting'->>'ends_at')::timestamptz<=(action->'meeting'->>'starts_at')::timestamptz
+        or (action->'meeting'->>'ends_at')::timestamptz-(action->'meeting'->>'starts_at')::timestamptz>interval '24 hours'
+        or jsonb_typeof(action->'meeting'->'project_id') not in ('null','string') then
+        raise exception using errcode='PT400',message='invalid_meeting_create_action';
+      end if;
     elsif kind='task_update' then
       if (select count(*) from jsonb_object_keys(action))<>5 or not (action ?& array['task_id','version','patch'])
         or jsonb_typeof(action->'patch')<>'object' or jsonb_typeof(action->'version')<>'number' or (action->>'version') !~ '^[1-9][0-9]{0,9}$' then
@@ -356,6 +373,7 @@ begin
   for project_id in
     select distinct p.id from public.projects p where p.id in (
       select (a->'task'->>'project_id')::uuid from jsonb_array_elements(p_actions) a where a->>'kind'='task_create'
+      union select (a->'meeting'->>'project_id')::uuid from jsonb_array_elements(p_actions) a where a->>'kind'='meeting_create'
       union select (a->'patch'->>'project_id')::uuid from jsonb_array_elements(p_actions) a where a->>'kind'='task_update'
       union select c.project_id from public.commitments c where c.id=any(task_ids)
       union select unnest(brief_ids)) order by p.id
@@ -371,6 +389,17 @@ begin
       one:=public.cos_notes_create_task('quick',item.note_id,action_id,action->'task');
       results:=jsonb_set(results,'{tasks}',results->'tasks'||jsonb_build_array(one->'task'));
       results:=jsonb_set(results,'{changes}',results->'changes'||jsonb_build_array(jsonb_build_object('id',action_id,'kind',kind,'before',null,'after',one->'task')));
+    elsif kind='meeting_create' then
+      project_id:=(action->'meeting'->>'project_id')::uuid;
+      if project_id is not null and not exists(select 1 from public.projects where id=project_id and status='active') then
+        raise exception using errcode='PT400',message='project_not_active';
+      end if;
+      insert into public.meetings(id,title,project_id,starts_at,ends_at,agenda,status)
+        values(action_id,btrim(action->'meeting'->>'title'),project_id,(action->'meeting'->>'starts_at')::timestamptz,
+          (action->'meeting'->>'ends_at')::timestamptz,action->'meeting'->>'agenda','scheduled')
+        returning to_jsonb(meetings.*) into one;
+      results:=jsonb_set(results,'{meetings}',results->'meetings'||jsonb_build_array(one));
+      results:=jsonb_set(results,'{changes}',results->'changes'||jsonb_build_array(jsonb_build_object('id',action_id,'kind',kind,'before',null,'after',one)));
     elsif kind='task_update' then
       one:=public.cos_inbox_task_patch((action->>'task_id')::uuid,(action->>'version')::integer,action->'patch');
       results:=jsonb_set(results,'{tasks}',results->'tasks'||jsonb_build_array(one->'task'));
