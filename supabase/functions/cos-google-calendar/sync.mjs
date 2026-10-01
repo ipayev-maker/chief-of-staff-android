@@ -8,11 +8,11 @@
 const BINDINGS = 'cos_calendar_bindings';
 const SOURCES = {
   task: {table:'commitments', select:'id,description,status,deadline,deadline_at,planned_on,next_check_on'},
-  meeting: {table:'meetings', select:'id,title,status,starts_at,ends_at,location,meeting_url'}
+  meeting: {table:'meetings', select:'id,title,status,starts_at,ends_at,location,meeting_url,remind_before_minutes'}
 };
 const RETRY_DELAY_MS = 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PROJECTION_REASONS = new Set(['invalid_date','invalid_timestamp','invalid_source_id','invalid_source_status','invalid_kind','invalid_generation','calendar_time_zone_required','source_title_required','meeting_end_required','meeting_end_must_follow_start','invalid_meeting_url']);
+const PROJECTION_REASONS = new Set(['invalid_date','invalid_timestamp','invalid_source_id','invalid_source_status','invalid_kind','invalid_generation','calendar_time_zone_required','source_title_required','meeting_end_required','meeting_end_must_follow_start','invalid_meeting_url','invalid_meeting_reminder']);
 const copy = value => structuredClone(value);
 const identityKey = (kind, id) => kind + ':' + String(id).toLowerCase();
 const codedError = code => Object.assign(new Error(code), {code});

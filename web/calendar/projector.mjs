@@ -51,6 +51,13 @@ export function projectCalendarRecord(kind, record, options = {}) {
     if (typeof title !== 'string' || !title.trim()) throw Error('source_title_required');
     const warnings = [];
     const description = ['Chief of Staff', options.projectTitle ? 'Проект: ' + html(options.projectTitle) : null].filter(Boolean);
+    let reminders = {useDefault:true};
+    if (kind === 'meeting') {
+      // Omitted fields retain the existing 15-minute default; explicit null disables.
+      const minutes = record.remind_before_minutes === undefined ? 15 : record.remind_before_minutes;
+      if (minutes !== null && (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440)) throw Error('invalid_meeting_reminder');
+      reminders = {useDefault:false, overrides:minutes === null ? [] : [{method:'popup', minutes}]};
+    }
     const event = {
       id:identity.eventId,
       summary:(record.status === 'completed' ? '✓ ' : record.status === 'paused' ? '⏸ ' : '') + (kind === 'task' ? 'Срок: ' : '') + title.trim(),
@@ -58,7 +65,7 @@ export function projectCalendarRecord(kind, record, options = {}) {
       transparency:kind === 'task' ? 'transparent' : 'opaque',
       source:{title:'Chief of Staff', url:APP_URL},
       extendedProperties:{private:{cosApp:APP, cosSourceKind:kind, cosSourceId:identity.sourceId, cosGeneration:String(identity.generation)}},
-      reminders:record.status === 'completed' ? {useDefault:false, overrides:[]} : {useDefault:true}
+      reminders:record.status === 'completed' ? {useDefault:false, overrides:[]} : reminders
     };
     if (kind === 'task' && record.deadline_at) {
       const start = instant(record.deadline_at);

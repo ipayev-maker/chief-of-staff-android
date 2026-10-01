@@ -137,3 +137,14 @@ test('reactivation uses a persisted next generation with stable retry identity',
   assert.equal(plan(retry, next.event).operation, 'update');
   assert.equal(project('task', task, {...options, generation:-1}).kind, 'error');
 });
+
+test('meeting reminders preserve default, exact-start, custom, off and completed semantics',async()=>{
+  const {projectCalendarRecord:project}=await implementation;
+  for(const [minutes,overrides] of [[undefined,[{method:'popup',minutes:15}]],[0,[{method:'popup',minutes:0}]],[45,[{method:'popup',minutes:45}]],[1440,[{method:'popup',minutes:1440}]],[null,[]]]){
+    const p=project('meeting',{...meeting,remind_before_minutes:minutes},options);
+    assert.equal(p.kind,'event');assert.deepEqual(p.event.reminders,{useDefault:false,overrides});
+    assert.deepEqual(project('meeting',{...meeting,remind_before_minutes:minutes,status:'completed'},options).event.reminders,{useDefault:false,overrides:[]});
+  }
+  for(const minutes of [-1,1441,1.5,'15',false,NaN])assert.equal(project('meeting',{...meeting,remind_before_minutes:minutes},options).reason,'invalid_meeting_reminder');
+  assert.deepEqual(project('task',task,options).event.reminders,{useDefault:true});
+});

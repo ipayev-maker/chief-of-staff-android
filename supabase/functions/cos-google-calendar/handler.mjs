@@ -93,7 +93,7 @@ export function createHandler({store, google, config, now = () => new Date(), ru
     const [bindings,tasks,meetings] = await Promise.all([
       store.list(BINDINGS,eq('connection_key',current.connection_key)),
       store.list('commitments','select=id,description,status,deadline,deadline_at&order=id'),
-      store.list('meetings','select=id,title,status,starts_at,ends_at,location,meeting_url&order=id')
+      store.list('meetings','select=id,title,status,starts_at,ends_at,location,meeting_url,remind_before_minutes&order=id')
     ]);
     const bySource = new Map(bindings.map(row => [row.source_kind + ':' + row.source_id,row]));
     const counts = {synced:0,pending:0,errors:0,undatedTasks:0};

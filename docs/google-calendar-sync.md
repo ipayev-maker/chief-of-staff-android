@@ -2,6 +2,12 @@
 
 Status at the 2026-09-22 release handoff: the OAuth handler and reconciliation worker are implemented; Supabase Edge Function `cos-google-calendar` version 2 is deployed, Vault configuration is provisioned, and the cron job is active. No owner connection exists yet. Google consent and a real Google event lifecycle have **not** been completed. Deploying the connection UI is the next step; owner consent is an activation step after release, not a prerequisite for merging this implementation.
 
+## Meeting reminders — v3.13.3
+
+The meeting's `remind_before_minutes` is synchronized as an explicit Google popup reminder. The default is 15 minutes; 0 means at the start, NULL disables reminders, and other supported values are integer minutes up to 1440. Completed records remain silent. Task reminders still inherit calendar defaults.
+
+Both the project meeting editor and standalone calendar details allow changing or disabling the reminder. Reminder-only edits update the same Google event on the next reconciliation pass. Apply `supabase/meeting-reminders.sql` before deploying the new UI, and include the updated projector, worker and status handler in the calendar Edge Function bundle.
+
 ## Behavior
 
 Chief of Staff is the source of truth. The integration creates a separate calendar named **Chief of Staff** in the configured owner's Google account. It does not target the primary calendar. Task and meeting dates are never written back from Google to the application.
