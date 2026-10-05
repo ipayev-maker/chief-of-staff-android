@@ -109,3 +109,70 @@ test('a meeting without reliable time remains unselected and needs explicit corr
  const proposal={version:1,changes:clone(item.proposal.changes)};proposal.changes[0].selected=true;
  await assert.rejects(service.apply(id,{revision:item.revision,request_id:uuid(),proposal}),e=>e.code==='invalid_meeting_time');
 });
+
+test('reported Anton preparation survives zero model actions, creates one owner task, no optional questions',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);
+ const source='Подобрать задачи для Антона на завтра.';
+ const f=setup({source,raw:{summary:'Нужны уточнения',questions:['Создать участника?','К какому проекту относится Антон?','Какие конкретно задачи?'],changes:[]}});
+ f.setRow({created_at:'2026-10-05T17:50:55Z',source_meta:{message_date:'2026-10-05T17:50:54Z'},proposal:{corrections:[{text:'Антон - новый участник. Дизайнер Ему надо дать задачи на завтра',created_at:'2026-10-05T17:52:18Z'},{text:'Антон дизайнер. Ему нужно подобрать задачи, завтра в 9:30',created_at:'2026-10-05T17:54:40Z'}]}});
+ f.context.cos_calendar_connection=[{status:'needs_reconnect',time_zone:'Europe/Moscow'}];
+ const service=createCommunicationInbox(f),{item}=await service.analyze(id,{revision:1});
+ assert.equal(item.status,'ready');assert.equal(item.proposal.time_zone,'Europe/Moscow');assert.deepEqual(item.proposal.questions,[]);
+ assert.equal(item.proposal.changes.length,1);const c=item.proposal.changes[0];
+ assert.equal(c.text,'Подобрать задачи для Антона');assert.equal(c.kind,'task_create');assert.equal(c.direction,'internal');assert.equal(c.project_id,null);
+ assert.equal(c.participant_id,null);assert.equal(c.participant_suggestion.name,'Антон');
+ assert.equal(c.planned_on,'2026-10-06');assert.equal(c.planned_time,'09:30');assert.equal(c.deadline,null);
+ // Creating a task remains possible without creating an optional participant first.
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:item.proposal.changes}});
+ const task=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].task;
+ assert.equal(task.planned_on,'2026-10-06');assert.equal(task.planned_start_at,'2026-10-06T06:30:00.000Z');assert.equal(task.deadline_at,null);
+ assert.equal(f.calls.filter(c=>c[0]==='cos_inbox_apply').length,1);
+});
+
+test('unknown participant is suggested, existing inflected names resolve without invented identities',async()=>{
+ const {normalizeInboxProposal}=await import(modulePath);
+ const source='Подобрать задачи для Антона завтра в 9:30.';
+ const f=setup({source}),context={projects:[],participants:[],tasks:[],briefs:[]};
+ const value={kind:'task_create',text:'Подобрать задачи для Антона',evidence:source,participant_name:'Антон',participant_mention:'Антона',date_text:'завтра в 9:30',date_status:'explicit',date_kind:'work'};
+ const norm=ctx=>normalizeInboxProposal({summary:'',questions:['К какому проекту относится Антон?','Антон — новый участник, добавить его?'],changes:[value]},{item:f.row(),context:ctx,uuid});
+ const proposed=norm(context);assert.equal(proposed.changes[0].participant_suggestion.name,'Антон');assert.deepEqual(proposed.questions,[]);
+ context.participants=[{id:person,name:'Антон'}];const existing=norm(context).changes[0];assert.equal(existing.participant_id,person);assert.equal(existing.participant_suggestion,undefined);
+ value.participant_name='Борис';value.participant_mention='Борис';value.participant_id=person;const forged=norm(context).changes[0];assert.equal(forged.participant_id,null);assert.equal(forged.participant_suggestion,undefined);
+});
+
+test('same first names offer a choice instead of creating or merging people',async()=>{
+ const {participantFor}=await import('../../supabase/functions/cos-notes/communication-intent.mjs');
+ const context={participants:[{id:person,name:'Антон Петров'},{id:project,name:'Антон Сидоров'}]};
+ const result=participantFor({participant_name:'Антон',participant_mention:'Антону'},context,'Поставить Антону задачи');
+ assert.equal(result.id,null);assert.deepEqual(result.suggestion.existing_ids,[person,project]);
+ assert.equal(participantFor({participant_name:'Анна',participant_mention:'Анна'}, {participants:[{id:person,name:'Аннализа'}]},'Анна пришлёт чертёж').id,null);
+});
+
+test('recovery never overrides cancellation, questions, tentative text or an existing result',async()=>{
+ const {recoverPreparationTask}=await import('../../supabase/functions/cos-notes/communication-intent.mjs');
+ const empty={changes:[],questions:[]};
+ for(const source of ['Не нужно ставить Антону задачи завтра.','Подобрать задачи для Антона завтра?','Возможно, подобрать задачи Антону.','Вчера подобрал задачи Антону.','Дизайнер Антон прислал материалы.'])assert.equal(recoverPreparationTask(empty,{source}),empty,source);
+ assert.equal(recoverPreparationTask(empty,{source:'Подобрать задачи Антону завтра.',corrections:[{text:'Не нужно, отменить.'}]}),empty);
+ const found={changes:[{kind:'task_create',text:'Подобрать задачи'}]};assert.equal(recoverPreparationTask(found,{source:'Подобрать задачи Антону завтра.'}),found);
+});
+
+test('work dates survive editing and defer; invalid time is rejected and existing work intervals stay intact',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);
+ const source='Подобрать задачи для Антона завтра в 9:30.';
+ const f=setup({source,raw:{summary:'',changes:[{kind:'task_create',text:'Подобрать задачи',evidence:source,date_text:'завтра в 9:30',date_status:'explicit',date_kind:'work'}]}}),service=createCommunicationInbox(f);
+ const {item}=await service.analyze(id,{revision:1});const proposal={version:1,changes:clone(item.proposal.changes)};
+ proposal.changes[0].planned_time='99:00';await assert.rejects(service.apply(id,{revision:item.revision,request_id:uuid(),proposal}),e=>e.code==='invalid_work_time');
+ proposal.changes[0].planned_time='10:15';const deferred=await service.defer(id,{revision:item.revision,request_id:uuid(),proposal});
+ await service.apply(id,{revision:deferred.item.revision,request_id:uuid(),proposal:{version:1,changes:deferred.item.proposal.changes}});
+ const task=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].task;assert.equal(task.planned_start_at,'2026-10-01T08:15:00.000Z');
+});
+
+test('updating task text preserves an existing work interval and deadline timestamp',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);const taskId=uuid(),source='Colryut: Анна прислала образец.';
+ const f=setup({source,raw:{summary:'',changes:[{kind:'task_update',task_id:taskId,text:'Получить образец',evidence:source,project_id:project,participant_id:person,status:'completed',date_status:'none'}]}});
+ f.context.commitments.push({id:taskId,description:'Получить образец',project_id:project,participant_id:person,direction:'to_me',status:'open',deadline:'2026-10-05',deadline_at:'2026-10-05T10:00:00Z',next_check_on:null,planned_on:'2026-10-02',planned_start_at:'2026-10-02T07:00:00Z',planned_end_at:'2026-10-02T08:00:00Z',cos_version:2});
+ const service=createCommunicationInbox(f),{item}=await service.analyze(id,{revision:1});
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:item.proposal.changes}});
+ const patch=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].patch;
+ assert.equal(patch.status,'completed');for(const field of ['planned_on','planned_start_at','planned_end_at','deadline','deadline_at'])assert.equal(Object.hasOwn(patch,field),false,field);
+});
