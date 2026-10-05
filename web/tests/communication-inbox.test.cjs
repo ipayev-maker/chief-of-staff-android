@@ -166,3 +166,13 @@ test('work dates survive editing and defer; invalid time is rejected and existin
  await service.apply(id,{revision:deferred.item.revision,request_id:uuid(),proposal:{version:1,changes:deferred.item.proposal.changes}});
  const task=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].task;assert.equal(task.planned_start_at,'2026-10-01T08:15:00.000Z');
 });
+
+test('updating task text preserves an existing work interval and deadline timestamp',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);const taskId=uuid(),source='Colryut: Анна прислала образец.';
+ const f=setup({source,raw:{summary:'',changes:[{kind:'task_update',task_id:taskId,text:'Получить образец',evidence:source,project_id:project,participant_id:person,status:'completed',date_status:'none'}]}});
+ f.context.commitments.push({id:taskId,description:'Получить образец',project_id:project,participant_id:person,direction:'to_me',status:'open',deadline:'2026-10-05',deadline_at:'2026-10-05T10:00:00Z',next_check_on:null,planned_on:'2026-10-02',planned_start_at:'2026-10-02T07:00:00Z',planned_end_at:'2026-10-02T08:00:00Z',cos_version:2});
+ const service=createCommunicationInbox(f),{item}=await service.analyze(id,{revision:1});
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:item.proposal.changes}});
+ const patch=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].patch;
+ assert.equal(patch.status,'completed');for(const field of ['planned_on','planned_start_at','planned_end_at','deadline','deadline_at'])assert.equal(Object.hasOwn(patch,field),false,field);
+});
