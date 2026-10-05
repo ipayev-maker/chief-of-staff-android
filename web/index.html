@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#28487e"><title>Chief of Staff v3.15.0</title><style>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#28487e"><title>Chief of Staff v3.15.1</title><style>
 :root{
   --bg:#f3f6fb;--panel:#ffffff;--panel2:#f8faff;--ink:#142033;--muted:#637086;--line:#d6deea;
   --blue:#3768e8;--blue2:#224dbb;--blueSoft:#edf2ff;--green:#16805b;--greenSoft:#e8f7f1;
@@ -65,7 +65,7 @@ const DIRECT='https://spabmyyxiufuzsaydrmx.supabase.co';
 const BASE='';
 const KEY='sb_publishable_CNZsixovw_VFqkJNusVKFw_EErlVgMI';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYWJteXl4aXVmdXpzYXlkcm14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODM0NTUsImV4cCI6MjEwMTU1OTQ1NX0.PyIB9co32csgjuvOvfVpxizWEA2JqBg107Qy-ydg37U';
-const BUILD='v3.15.0-automatic-project-overview-20261002';
+const BUILD='v3.15.1-today-calendar-reconnect-20261005';
 const S={
   section:'today',inboxId:null,projects:[],tasks:[],participants:[],areas:[],meetings:[],notes:[],assets:[],taskAssets:[],links:[],layouts:[],time:[],minutes:{},
   project:null,calendarReturn:false,tab:'overview',filter:'active',areaFilter:'all',task:null,taskDraft:null,taskSaveBusy:false,note:null,meeting:null,showCompleted:false,taskShowCompleted:false,showArchivedNotes:false,captureDrafts:[],captureBusy:false,captureMessage:'',linkMode:false,linkFrom:null,linkType:'blocks'
@@ -303,6 +303,7 @@ async function boot(){
       api(R('commitment_assets','select=*&order=created_at.desc'))
     ]);
     Object.assign(S,{projects:p||[],tasks:t||[],meetings:m||[],time:te||[],participants:people||[],areas:areas||[],taskAssets:ta||[]});
+    todayRefreshReady=true;todayRefreshAt=Date.now();
     await syncMeetingStatuses(false);
     const route=initDashboardNavigation();
     if(route){const opened=await applyDashboardRoute(route);if(opened!==true){dashboardNavigation?.replace(dashboardRoute());render()}}else render();
@@ -366,7 +367,7 @@ async function applyDashboardRoute(route){
   projectOpenSequence++;taskOpenSequence++;calendarNavigationSequence++;
   if(route.projectId){if(!S.projects.some(project=>project.id===route.projectId))return false;return openProject(route.projectId,{skipNavigationGuard:true,tab:route.tab,section:route.section,calendarReturn:route.calendarReturn})}
   disposeInbox();
-  S.calendarReturn=false;S.section=route.section;S.inboxId=route.section==='inbox'?route.inboxId||null:null;S.project=null;S.task=null;S.meeting=null;S.note=null;S.tab='overview';clearNotesRoute();setQuickNotesScope(null);render();if(S.section==='notes')loadQuickNotes().catch(()=>{});return true;
+  S.calendarReturn=false;S.section=route.section;S.inboxId=route.section==='inbox'?route.inboxId||null:null;S.project=null;S.task=null;S.meeting=null;S.note=null;S.tab='overview';clearNotesRoute();setQuickNotesScope(null);render();if(S.section==='notes')loadQuickNotes().catch(()=>{});if(S.section==='today')void refreshTodayData();return true;
 }
 function initDashboardNavigation(){
   if(!window.CoSNavigation)return null;
@@ -474,21 +475,61 @@ async function openTodayMeeting(id){
   if(S.projects.some(p=>p.id===meeting.project_id))return openProject(meeting.project_id,{tab:'meetings',meeting});
   showCalendarMeetingDetails(meeting);
 }
+function todayTaskDates(task,day=today()){
+  return [
+    {label:'Работа',day:plan(task),at:task.planned_start_at},
+    {label:'Срок',day:due(task),at:task.deadline_at},
+    {label:'Проверить',day:localDate(task.next_check_at)||task.next_check_on,at:task.next_check_at}
+  ].filter(date=>date.day===day);
+}
+function todayTaskTiming(task,day=today()){
+  return todayTaskDates(task,day).map(date=>date.label+(date.at?' в '+new Date(date.at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):' сегодня')).join(' · ');
+}
 function todayOverview(now=new Date()){
   const day=localDate(now),activeProjects=S.projects.filter(p=>p.status==='active'),inactiveIds=new Set(S.projects.filter(p=>p.status!=='active').map(p=>p.id));
   const activeTask=t=>!done(t)&&t.status!=='paused'&&!t.deleted_at&&!inactiveIds.has(t.project_id);
   return {day,activeProjects,riskProjects:activeProjects.filter(p=>['yellow','red'].includes(p.risk_level)),
-    tasks:S.tasks.filter(t=>activeTask(t)&&plan(t)===day).sort((a,b)=>(a.planned_start_at||'').localeCompare(b.planned_start_at||'')),
+    tasks:S.tasks.filter(t=>activeTask(t)&&todayTaskDates(t,day).length).sort((a,b)=>{
+      const first=task=>Math.min(...todayTaskDates(task,day).map(date=>date.at?new Date(date.at).getTime():Infinity));
+      return first(a)-first(b)||String(a.description||'').localeCompare(String(b.description||''),'ru')||String(a.id).localeCompare(String(b.id));
+    }),
     meetings:S.meetings.filter(m=>!['cancelled','completed'].includes(m.status)&&localDate(m.starts_at)===day&&new Date(m.ends_at||m.starts_at)>=now).sort((a,b)=>a.starts_at.localeCompare(b.starts_at)),
     deadlines:S.tasks.filter(t=>activeTask(t)&&due(t)&&due(t)>=day&&(!t.deadline_at||new Date(t.deadline_at)>=now)).sort((a,b)=>due(a).localeCompare(due(b))||(a.deadline_at||'').localeCompare(b.deadline_at||'')).slice(0,5)};
 }
+let todayRefreshReady=false,todayRefreshBusy=false,todayRefreshAt=0,todayRefreshError='';
+function canRefreshToday(){
+  return S.section==='today'&&!S.project&&!S.task&&!S.taskDraft&&!S.taskSaveBusy&&!S.captureBusy&&!S.captureDrafts.length
+    &&!$('#captureText')?.value?.trim()&&!$('#captureVoice')?.disabled&&!$$('dialog[open]').length
+    &&document.visibilityState!=='hidden'&&!document.activeElement?.matches?.('input,textarea,select,[contenteditable="true"]');
+}
+async function refreshTodayData(manual=false){
+  if(!todayRefreshReady||todayRefreshBusy)return false;
+  if(!canRefreshToday()){if(manual)toast('Закончите ввод или закройте карточку, затем обновите задачи.');return false}
+  if(!manual&&Date.now()-todayRefreshAt<60000)return false;
+  todayRefreshBusy=true;todayRefreshAt=Date.now();
+  const navigation=dashboardNavigationSequence,projectRequest=projectOpenSequence,taskRequest=taskOpenSequence;
+  const current=()=>navigation===dashboardNavigationSequence&&projectRequest===projectOpenSequence&&taskRequest===taskOpenSequence&&canRefreshToday();
+  const button=$('#todayRefresh');if(button){button.disabled=true;button.textContent='Обновляю…'}
+  try{
+    const [projects,tasks,meetings,participants]=await Promise.all([
+      api(R('projects','select=id,title,status,risk_level,area_key&order=updated_at.desc.nullslast,title.asc')),
+      api(R('commitments','select=id,project_id,participant_id,area_key,description,details,direction,status,deadline,planned_on,next_check_on,planned_start_at,planned_end_at,deadline_at,next_check_at,estimate_minutes,cos_version,created_at,updated_at&status=in.(open,paused,completed,cancelled)&deleted_at=is.null')),
+      api(R('meetings','select=*&order=starts_at.asc')),
+      api(R('participants','select=id,name&order=name.asc'))
+    ]);
+    if(![projects,tasks,meetings,participants].every(Array.isArray))throw Error('Неполный ответ сервера');
+    if(!current()){todayRefreshAt=0;return false}
+    Object.assign(S,{projects,tasks,meetings,participants});todayRefreshError='';todayPage();return true;
+  }catch{if(current()){todayRefreshError='Не удалось обновить задачи. Показаны ранее загруженные данные.';const status=$('#todayRefreshStatus');if(status)status.textContent=todayRefreshError}return false}
+  finally{todayRefreshBusy=false;if(button?.isConnected){button.disabled=false;button.textContent='Обновить'}}
+}
 function todayPage(){
   const overview=todayOverview(),tod=overview.tasks,meet=overview.meetings,cur=tod[0],timer=activeTimer(),standalone=S.task&&!S.project?taskById(S.task):null;
-  const taskRow=t=>`<div class="row clickable" data-open-task="${esc(t.id)}"><time>${t.planned_start_at?new Date(t.planned_start_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):'В течение дня'}</time><div><button class="title-link" type="button" data-open-task="${esc(t.id)}">${esc(t.description)}</button><button class="project-inline-link" type="button" data-open-project-title="${esc(t.project_id||'')}">${esc(projectName(t.project_id))}</button></div></div>`;
+  const taskRow=t=>`<div class="row clickable" data-open-task="${esc(t.id)}"><div><button class="title-link" type="button" data-open-task="${esc(t.id)}">${esc(t.description)}</button><span class="field-hint">${esc(todayTaskTiming(t,overview.day))}${isTaskOverdue(t)?' · Срок прошёл':''}</span><button class="project-inline-link" type="button" data-open-project-title="${esc(t.project_id||'')}">${esc(projectName(t.project_id))}</button></div></div>`;
   const deadlineRow=t=>{const d=new Date(due(t)+'T12:00:00');return`<button class="today-deadline" type="button" data-open-task="${esc(t.id)}"><span class="today-deadline-date"><b>${d.getDate()}</b><small>${esc(d.toLocaleDateString('ru-RU',{month:'short'}).replace('.',''))}</small></span><span><strong>${esc(t.description)}</strong><small>${esc(projectName(t.project_id))}${t.deadline_at?' · '+esc(new Date(t.deadline_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})):''}</small></span></button>`};
-  $('#main').innerHTML=`<section class="page today-page"><div class="today-topbar"><button id="todaySearch" class="today-search" type="button"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Найти задачу<span aria-hidden="true">→</span></button><span class="today-date">${new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})}</span></div><header class="head"><div><span class="eyebrow">Ваш день</span><h1>Сегодня</h1><p>Главное действие, встречи и то, что требует внимания.</p></div><div class="head-actions">${timer?timerBannerHtml():''}<button class="btn primary" id="todayNewTask" type="button">＋ Добавить задачу</button></div></header>
-  <div class="today-kpis"><button class="today-kpi today-kpi-attention" id="todayAttentionJump" type="button"><span class="today-kpi-label"><i aria-hidden="true"></i>Требует внимания</span><span class="today-kpi-value" id="todayAttentionCount">…</span><span class="today-kpi-hint" id="todayAttentionHint">Сроки, ожидания и следующий шаг</span></button><button class="today-kpi" id="todayProjectsJump" type="button"><span class="today-kpi-label">Активные проекты</span><span class="today-kpi-line"><span class="today-kpi-value">${overview.activeProjects.length}</span>${overview.riskProjects.length?`<span class="today-risk">Повышенный риск: ${overview.riskProjects.length}</span>`:''}</span><span class="today-kpi-hint">Все проекты <span aria-hidden="true">→</span></span></button></div>
-  <div class="today-grid"><div class="today-main-column"><section class="today-now"><div class="section-title"><h2>Сейчас</h2><span>Задач на сегодня: ${tod.length}</span></div>${cur?`<article class="focus" data-open-task="${esc(cur.id)}"><button class="project-inline-link" type="button" data-open-project-title="${esc(cur.project_id||'')}">${esc(projectName(cur.project_id))}</button><h2><button class="title-link" type="button" data-open-task="${esc(cur.id)}">${esc(cur.description)}</button></h2><div class="meta"><span>${fmt(cur.planned_start_at||cur.planned_on)}</span>${due(cur)?`<span>срок ${fmt(cur.deadline_at||cur.deadline)}</span>`:''}<span>${fmtDur(taskSeconds(cur.id))} факт</span></div></article>`:`<div class="focus focus-empty"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="16" cy="16" r="12"/><path d="m10 16 4 4 8-8" stroke-linecap="round" stroke-linejoin="round"/></svg><div><b>На сегодня задач не запланировано</b><p>Выбери следующий шаг или запиши новую договорённость.</p><button class="btn" id="todayBrowseTasks" type="button">Перейти к задачам →</button></div></div>`}</section>
+  $('#main').innerHTML=`<section class="page today-page"><div class="today-topbar"><button id="todaySearch" class="today-search" type="button"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>Найти задачу<span aria-hidden="true">→</span></button><span class="today-date">${new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})}</span></div><header class="head"><div><span class="eyebrow">Ваш день</span><h1>Сегодня</h1><p>Главное действие, встречи и то, что требует внимания.</p></div><div class="head-actions">${timer?timerBannerHtml():''}<button class="btn" id="todayRefresh" type="button">Обновить</button><button class="btn primary" id="todayNewTask" type="button">＋ Добавить задачу</button></div></header>
+  <p id="todayRefreshStatus" class="field-hint error-text" role="status">${esc(todayRefreshError)}</p><div class="today-kpis"><button class="today-kpi today-kpi-attention" id="todayAttentionJump" type="button"><span class="today-kpi-label"><i aria-hidden="true"></i>Требует внимания</span><span class="today-kpi-value" id="todayAttentionCount">…</span><span class="today-kpi-hint" id="todayAttentionHint">Сроки, ожидания и следующий шаг</span></button><button class="today-kpi" id="todayProjectsJump" type="button"><span class="today-kpi-label">Активные проекты</span><span class="today-kpi-line"><span class="today-kpi-value">${overview.activeProjects.length}</span>${overview.riskProjects.length?`<span class="today-risk">Повышенный риск: ${overview.riskProjects.length}</span>`:''}</span><span class="today-kpi-hint">Все проекты <span aria-hidden="true">→</span></span></button></div>
+  <div class="today-grid"><div class="today-main-column"><section class="today-now"><div class="section-title"><h2>Сейчас</h2><span>Задач на сегодня: ${tod.length}</span></div>${cur?`<article class="focus" data-open-task="${esc(cur.id)}"><button class="project-inline-link" type="button" data-open-project-title="${esc(cur.project_id||'')}">${esc(projectName(cur.project_id))}</button><h2><button class="title-link" type="button" data-open-task="${esc(cur.id)}">${esc(cur.description)}</button></h2><div class="meta"><span>${esc(todayTaskTiming(cur,overview.day))}</span>${isTaskOverdue(cur)?'<span class="error-text">Срок прошёл</span>':''}${due(cur)&&due(cur)!==overview.day?`<span>срок ${fmt(cur.deadline_at||cur.deadline)}</span>`:''}<span>${fmtDur(taskSeconds(cur.id))} факт</span></div></article>`:`<div class="focus focus-empty"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="16" cy="16" r="12"/><path d="m10 16 4 4 8-8" stroke-linecap="round" stroke-linejoin="round"/></svg><div><b>На сегодня задач нет</b><p>Здесь появятся задачи с работой, сроком или проверкой на сегодня.</p><button class="btn" id="todayBrowseTasks" type="button">Перейти к задачам →</button></div></div>`}</section>
   ${captureBlock()}<div id="todayAttention"></div></div><aside class="today-side-column"><section class="today-card"><div class="section-title"><h2>Сегодня дальше</h2><span>Встреч: ${meet.length}</span></div><div class="list">${meet.map(m=>`<div class="row clickable" data-open-meeting="${esc(m.id)}"><time>${new Date(m.starts_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</time><div><button class="title-link" type="button" data-open-meeting="${esc(m.id)}">${esc(m.title)}</button><button class="project-inline-link" type="button" data-open-project-title="${esc(m.project_id||'')}">${esc(projectName(m.project_id))}</button></div></div>`).join('')}${tod.filter(t=>t!==cur).map(taskRow).join('')}${!meet.length&&tod.length<=1?'<div class="day-empty">Больше задач и встреч на сегодня нет.</div>':''}</div></section>
   <section class="today-card"><div class="section-title"><h2>Ближайшие сроки</h2></div>${overview.deadlines.map(deadlineRow).join('')||'<div class="day-empty">Предстоящих сроков пока нет.</div>'}</section>
   <section class="today-assistant"><div class="today-assistant-head"><span aria-hidden="true">✦</span><div><h2>Никодим</h2><small>Вся рабочая среда</small></div></div><p>Задачи, сроки, ожидания и связи — можно быстро проверить, что происходит.</p><div class="today-assistant-actions"><button type="button" data-today-question="overdue">Что просрочено?</button><button type="button" data-today-question="waiting">Что ждём от других?</button><button type="button" data-today-question="blocks">Что блокирует проект?</button></div></section></aside></div></section>${standalone?taskDrawer(standalone):''}`;
@@ -500,6 +541,7 @@ function todayPage(){
   $('#todayProjectsJump').onclick=()=>navigateDashboardSection('projects');
   $('#todayAttentionJump').onclick=()=>{$('#todayAttention')?.scrollIntoView?.({block:'start'});$('#todayAttention .attention-title')?.focus?.({preventScroll:true})};
   $$('[data-today-question]').forEach(b=>b.onclick=()=>{$('#nikPanel').classList.add('open');answerNik(b.dataset.todayQuestion)});
+  $('#todayRefresh').onclick=()=>refreshTodayData(true);
   $('#todayNewTask').onclick=newGlobalTask;if(standalone)bindTaskDrawer();bindCapture();bindTimerControls();renderTodayAttention();
 }
 
@@ -1066,7 +1108,7 @@ function quickNotesPage(){
 // Calendar owner session is an HttpOnly cookie; never use the public data API key here.
 const CALENDAR_ENDPOINT='/api/google-calendar';
 const CALENDAR_CALLBACK_REASONS={denied:'Доступ к Google Calendar не предоставлен.',invalid_state:'Срок подключения истёк. Начните подключение заново.',wrong_account:'Выбран другой аккаунт Google. Используйте аккаунт владельца приложения.',missing_scope:'Не предоставлен доступ к календарю. Повторите подключение и разрешите доступ.',refresh_token_missing:'Google не предоставил доступ для последующей синхронизации. Подключитесь повторно.',calendar_setup_failed:'Создание календаря Chief of Staff не подтверждено. Обновите статус; перед повторным подключением необходимо проверить, был ли календарь создан.',connection_busy:'Подключение уже выполняется. Обновите статус через минуту.',oauth_failed:'Не удалось завершить подключение Google Calendar.'};
-const CALENDAR_ISSUE_REASONS={meeting_end_required:'У встречи не указано окончание. Добавьте дату и время окончания.',meeting_end_must_follow_start:'Окончание встречи должно быть позже начала.',invalid_date:'Проверьте дату в задаче или встрече.',invalid_timestamp:'Проверьте дату, время и часовой пояс записи.',calendar_time_zone_required:'Для календаря не задан часовой пояс.',source_title_required:'У записи отсутствует название.',invalid_source_status:'Проверьте статус записи.',invalid_meeting_url:'У встречи некорректная ссылка.',invalid_meeting_reminder:'Выберите напоминание от 0 минут до суток или отключите его.',deadline_date_differs_from_timestamp:'Дата срока отличается от даты точного времени. Используется точное время срока.',event_ownership_mismatch:'Событие в Google не удалось сопоставить с записью приложения.',google_event_cancelled:'Событие удалено в Google. Требуется проверка.',deadline_removed:'У задачи нет крайнего срока; событие не создаётся.',missing_deadline:'У задачи нет крайнего срока; событие не создаётся.',projection_failed:'Не удалось подготовить событие. Проверьте даты записи.'};
+const CALENDAR_ISSUE_REASONS={invalid_grant:'Google больше не принимает сохранённое разрешение. Нажмите «Переподключить Google Calendar» и войдите в аккаунт владельца. Проверять даты задач не требуется.',invalid_token:'Разрешение Google недействительно. Переподключите Google Calendar.',refresh_token_missing:'Google не предоставил разрешение для фоновой синхронизации. Переподключите Google Calendar.',not_connected:'Синхронизация остановлена. Переподключите Google Calendar.',some_records_failed:'Часть записей не синхронизирована. Причины указаны ниже.',calendar_conflicts:'Есть расхождения с Google Calendar. Проверьте записи ниже.',meeting_end_required:'У встречи не указано окончание. Добавьте дату и время окончания.',meeting_end_must_follow_start:'Окончание встречи должно быть позже начала.',invalid_date:'Проверьте дату в задаче или встрече.',invalid_timestamp:'Проверьте дату, время и часовой пояс записи.',calendar_time_zone_required:'Для календаря не задан часовой пояс.',source_title_required:'У записи отсутствует название.',invalid_source_status:'Проверьте статус записи.',invalid_meeting_url:'У встречи некорректная ссылка.',invalid_meeting_reminder:'Выберите напоминание от 0 минут до суток или отключите его.',deadline_date_differs_from_timestamp:'Дата срока отличается от даты точного времени. Используется точное время срока.',event_ownership_mismatch:'Событие в Google не удалось сопоставить с записью приложения.',google_event_cancelled:'Событие удалено в Google. Требуется проверка.',deadline_removed:'У задачи нет крайнего срока; событие не создаётся.',missing_deadline:'У задачи нет крайнего срока; событие не создаётся.',projection_failed:'Не удалось подготовить событие. Проверьте даты записи.'};
 function calendarReason(reason){const key=String(reason);return Object.prototype.hasOwnProperty.call(CALENDAR_CALLBACK_REASONS,key)?CALENDAR_CALLBACK_REASONS[key]:'Не удалось завершить подключение. Попробуйте ещё раз.'}
 function calendarTimeZone(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch{return'UTC'}}
 function calendarCount(value){const n=Number(value);return Number.isFinite(n)&&n>=0?Math.floor(n):0}
@@ -1085,8 +1127,8 @@ function calendarStatusHTML(status){
   const info=conn?`<dl class="calendar-connection-info"><dt>Аккаунт</dt><dd>${esc(conn.email||'Не указан')}</dd><dt>Календарь</dt><dd>${esc(conn.calendarName||'Chief of Staff')}</dd><dt>Часовой пояс</dt><dd>${esc(conn.timeZone||'Не указан')}</dd><dt>Последняя синхронизация</dt><dd>${esc(calendarDate(conn.lastSyncAt))}</dd></dl>`:'';
   const metrics=conn?`<div class="calendar-sync-counts"><div><b>${calendarCount(counts.synced)}</b><span>Синхронизировано</span></div><div><b>${calendarCount(counts.pending)}</b><span>Ожидает синхронизации</span></div><div><b>${calendarCount(counts.errors)}</b><span>Требует исправления</span></div><div><b>${calendarCount(counts.undatedTasks)}</b><span>Задачи без срока</span></div></div><p class="calendar-help">Задачи без крайнего срока не переносятся в календарь. Дата запланированной работы и дата проверки не заменяют срок.</p>`:'';
   const issueList=issues.length?`<section class="calendar-issues"><h3>Нужно проверить</h3><ul>${issues.slice(0,50).map(issue=>`<li><b>${issue.kind==='meeting'?'Встреча':issue.kind==='task'?'Задача':'Запись'}: ${esc(issue.title||'Без названия')}</b><span>${esc(CALENDAR_ISSUE_REASONS[issue.reason]||'Не удалось синхронизировать запись. Проверьте её даты и повторите синхронизацию.')}</span></li>`).join('')}</ul>${issues.length>50?`<p class="calendar-help">Ещё записей, требующих проверки: ${issues.length-50}.</p>`:''}</section>`:'';
-  const connect=disconnected&&configured?`<form action="${CALENDAR_ENDPOINT}/start" method="POST" data-calendar-connect><input type="hidden" name="time_zone" value="${esc(calendarTimeZone())}"><button class="btn primary" type="submit">Подключить Google Calendar</button></form>`:'';
-  return `<p class="calendar-status-label">${esc(label)}</p>${!configured?'<p class="error" role="status">Подключение Google Calendar ещё не настроено на сервере.</p>':''}${info}${conn?.lastError?`<p class="error" role="status">${esc(CALENDAR_ISSUE_REASONS[conn.lastError]||'Последняя синхронизация завершилась с ошибкой. Проверьте записи ниже и повторите синхронизацию.')}</p>`:''}${metrics}${issueList}<div class="calendar-actions">${connect}${conn&&!disconnected?'<button class="btn primary" type="button" data-calendar-sync>Синхронизировать сейчас</button>':''}<button class="btn" type="button" data-calendar-refresh>Обновить статус</button>${conn&&!disconnected?'<button class="btn red" type="button" data-calendar-disconnect>Отключить</button>':''}</div>`;
+  const connect=disconnected&&configured?`<form action="${CALENDAR_ENDPOINT}/start" method="POST" data-calendar-connect><input type="hidden" name="time_zone" value="${esc(calendarTimeZone())}"><button class="btn primary" type="submit">${conn&&['needs_reconnect','expired','revoked'].includes(conn.status)?'Переподключить Google Calendar':'Подключить Google Calendar'}</button></form>`:'';
+  return `<p class="calendar-status-label">${esc(label)}</p>${!configured?'<p class="error" role="status">Подключение Google Calendar ещё не настроено на сервере.</p>':''}${info}${conn?.lastError?`<p class="error" role="status">${esc(CALENDAR_ISSUE_REASONS[conn.lastError]||(conn.status==='needs_reconnect'?'Доступ к Google Calendar нужно восстановить. Нажмите «Переподключить Google Calendar».':'Последняя синхронизация завершилась с ошибкой. Обновите статус и повторите синхронизацию.'))}</p>`:''}${metrics}${issueList}<div class="calendar-actions">${connect}${conn&&!disconnected?'<button class="btn primary" type="button" data-calendar-sync>Синхронизировать сейчас</button>':''}<button class="btn" type="button" data-calendar-refresh>Обновить статус</button>${conn&&!disconnected?'<button class="btn red" type="button" data-calendar-disconnect>Отключить</button>':''}</div>`;
 }
 async function openCalendarSettings(callback=null){
   const existing=$('#calendarSettingsDialog');if(existing){existing.focus();return}
@@ -1104,7 +1146,7 @@ async function openCalendarSettings(callback=null){
   const action=async kind=>{
     if(busy)return;if(kind==='disconnect'&&!confirm('Отключить синхронизацию с Google Calendar?'))return;
     lock(true);notice(kind==='sync'?'Выполняю синхронизацию…':'Отключаю календарь…');
-    try{const result=await calendarRequest(kind,'POST');if(!result?.ok)throw Error('Сервер не подтвердил действие. Обновите статус.');if(closed)return;notice(kind==='sync'?'Синхронизация запрошена. Актуальное состояние показано ниже.':'Запрос на отключение выполнен. Проверяю состояние…');const status=await refresh();if(kind==='disconnect'&&status&&!status.authenticated)notice('Google Calendar отключён.')}
+    try{const result=await calendarRequest(kind,'POST');if(!result?.ok){if(closed)return;await refresh();notice(CALENDAR_ISSUE_REASONS[result?.reason]||'Сервер не подтвердил действие. Обновите статус.',true);return}if(closed)return;notice(kind==='sync'?'Синхронизация запрошена. Актуальное состояние показано ниже.':'Запрос на отключение выполнен. Проверяю состояние…');const status=await refresh();if(kind==='disconnect'&&status&&!status.authenticated)notice('Google Calendar отключён.')}
     catch(e){if(!closed)notice(requestError(e),true)}finally{if(!closed)lock(false)}
   };
   const bind=()=>{
@@ -1125,6 +1167,8 @@ function initCalendarSettings(){
   openCalendarSettings(callback);
 }
 
+window.addEventListener('focus',()=>{void refreshTodayData()});
+setInterval(()=>{void refreshTodayData()},60000);
 setInterval(updateLiveTimers,1000);
 setInterval(()=>{syncMeetingStatuses().catch(()=>{});checkMeetingReminders().catch(()=>{})},60000);
 window.addEventListener('beforeunload',event=>{if(inboxEditing()||(QN.draft&&quickNoteChanged()&&!QN.backupAvailable)||(S.taskDraft?._noteSource&&!S.taskDraft._backupAvailable)){event.preventDefault();event.returnValue=''}});
