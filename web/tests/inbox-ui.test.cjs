@@ -37,7 +37,7 @@ test('renders source and proposals without HTML injection or synthetic task crea
   assert.match(html,/&lt;svg\/onload=bad&gt;/);
   assert.doesNotMatch(html,/<script>|<iframe|<svg|<img/);
   assert.match(html,/Основание в сообщении/);
-  assert.match(html,/Применить всё/);
+  assert.match(html,/Создать задачу/);
   assert.match(html,/после подтверждения/);
 });
 test('voice original is played through authenticated same-origin inbox endpoint',()=>{
@@ -256,7 +256,7 @@ test('deep-linked selected card loads without a separate list click',async()=>{
   const f=fixture(async path=>{requests.push(path);return path.startsWith('/inbox?')?{items:[]}:{item:item()};},{selectedId:ID});
   await flush();
   assert.ok(requests.includes(`/inbox/${ID}`));
-  assert.match(f.container.innerHTML,/Проверить предложения/);
+  assert.match(f.container.innerHTML,/Проверьте и сохраните/);
   assert.match(f.container.innerHTML,/ci-layout ci-has-selection/);
   f.controller.dispose();
 });
@@ -351,4 +351,18 @@ test('participant authorization expiry preserves name and proposal until returni
   await click(f,'participant-save');
   assert.match(f.container.innerHTML,new RegExp(`<option value="${REQUEST}" selected>Сергей`));
   f.controller.dispose();
+});
+
+test('named participant suggestion prefills creation next to the task without opening the full editor',async()=>{
+ const row=item({proposal:{version:1,time_zone:'Europe/Moscow',questions:[],changes:[change({text:'Подобрать задачи для Антона',participant_id:null,participant_suggestion:{name:'Антон',mention:'Антона',existing_ids:[]},planned_on:'2026-10-06',planned_time:'09:30',deadline:null})]}});
+ let writes=0;const f=fixture(async(path,opt)=>{if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};if(path===`/inbox/${ID}`)return {item:row};writes++;return {participant:opt.body};},{selectedId:ID,participants:[]});
+ await flush();assert.equal(writes,0);assert.match(f.container.innerHTML,/Новый участник: <b>Антон<\/b>/);assert.match(f.container.innerHTML,/6 окт. 2026 в 09:30 · Москва/);
+ await click(f,'participant-new',{ciChange:CHANGE});assert.match(f.container.innerHTML,/data-ci-field="participant_name" value="Антон"/);assert.doesNotMatch(f.container.innerHTML,/data-ci-field="project_id"/);
+ await click(f,'participant-save');assert.equal(writes,1);assert.match(f.container.innerHTML,/Участник: Антон/);assert.doesNotMatch(f.container.innerHTML,/Новый участник:/);assert.match(f.container.innerHTML,/Создать задачу/);f.controller.dispose();
+});
+
+test('suggested existing participant is selected explicitly without writing a new person',async()=>{
+ const row=item({proposal:{version:1,changes:[change({participant_id:null,participant_suggestion:{name:'Анна',existing_ids:[PERSON]}})]}});
+ let writes=0;const f=fixture(async(path,opt)=>{if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};if(path===`/inbox/${ID}`)return {item:row};writes++;},{selectedId:ID});
+ await flush();await click(f,'participant-select',{ciChange:CHANGE,ciPerson:PERSON});assert.equal(writes,0);assert.match(f.container.innerHTML,/Участник: Анна/);f.controller.dispose();
 });
