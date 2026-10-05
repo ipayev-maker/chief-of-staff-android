@@ -7,6 +7,7 @@ S.projects=[
  {id:'preview-next',title:'Запуск производства',status:'active',area_key:'work',risk_level:'red'}
 ];
 S.tasks=[
+ {id:'sample-telegram',description:'Прислать RAL по обоим шкафам',project_id:projectId,status:'open',direction:'from_me',deadline:previewDay(0),next_check_on:previewDay(0)},
  {id:'sample-drawings',description:'Согласовать чертежи торговой стойки',project_id:projectId,status:'open',direction:'internal',planned_on:previewDay(0),deadline:previewDay(1)},
  {id:'sample-overdue',description:'Получить от поставщика подтверждение срока образца',project_id:projectId,status:'open',direction:'to_me',deadline:previewDay(-2)},
  {id:'sample-check',description:'Уточнить замечания по материалам и отделке',project_id:'preview-design',status:'open',direction:'to_me',next_check_on:previewDay(0),deadline:previewDay(2)},
@@ -14,3 +15,5 @@ S.tasks=[
 ];
 S.meetings=[{id:'sample-meeting',title:'Обсуждение образца с производством',project_id:projectId,status:'planned',starts_at:previewTime(60),ends_at:previewTime(90)}];
 S.captureDrafts=[];QN.loaded=true;
+
+calendarRequest=async()=>({authenticated:true,connection:{status:'needs_reconnect',email:'owner@example.test',calendarName:'Chief of Staff',timeZone:'Europe/Moscow',lastSyncAt:previewTime(-5000),lastError:'invalid_grant'},counts:{synced:24,pending:1,errors:0,undatedTasks:4},issues:[]});

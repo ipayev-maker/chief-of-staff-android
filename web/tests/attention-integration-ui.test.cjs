@@ -193,7 +193,7 @@ test('today overview uses active projects and current task states with independe
   const result=plain(f.evaluate("todayOverview(new Date('2026-10-02T12:00:00'))"));
   assert.deepEqual(result.activeProjects.map(p=>p.id),['project-1','risk']);
   assert.deepEqual(result.riskProjects.map(p=>p.id),['risk']);
-  assert.deepEqual(result.tasks.map(t=>t.id),['today']);
+  assert.deepEqual(result.tasks.map(t=>t.id),['late','today']);
   assert.deepEqual(result.deadlines.map(t=>t.id),['today','tomorrow']);
 });
 
@@ -220,4 +220,70 @@ test('today attention metric follows the rendered summary',()=>{
   const f=fixture();f.app.todayPage();const summarize=f.renders.at(-1).options.onSummary;
   summarize({count:7,overdue:3});assert.equal(f.element('#todayAttentionCount').textContent,'7');assert.match(f.element('#todayAttentionHint').textContent,/3/);
   summarize({count:0,overdue:0});assert.equal(f.element('#todayAttentionCount').textContent,'0');assert.doesNotMatch(f.element('#todayAttentionHint').textContent,/Просроченных/);
+});
+
+test('Telegram deadline and check dates appear today without a planned day, once per task',()=>{
+  const f=fixture();f.app.S.tasks=[
+    {id:'telegram',description:'Send RAL',status:'open',deadline:'2026-10-05',planned_on:null,source_message_id:'telegram-message'},
+    {id:'both',description:'Both dates',status:'open',deadline:'2026-10-05',next_check_on:'2026-10-05'},
+    {id:'check',description:'Check today',status:'open',direction:'to_me',next_check_at:'2026-10-05T11:00:00'},
+    {id:'future',status:'open',deadline:'2026-10-06'},
+    {id:'undated',status:'open'},
+    {id:'cancelled',status:'cancelled',deadline:'2026-10-05'}
+  ];
+  const result=plain(f.evaluate("todayOverview(new Date('2026-10-05T20:00:00'))"));
+  assert.deepEqual(result.tasks.map(t=>t.id),['check','both','telegram']);
+  assert.equal(f.evaluate("todayTaskTiming(S.tasks[1],'2026-10-05')"),'Срок сегодня · Проверить сегодня');
+  assert.equal(f.evaluate("todayTaskTiming(S.tasks[0],'2026-10-05')"),'Срок сегодня');
+  assert.equal(f.app.S.tasks[0].planned_on,null);
+});
+
+test('today uses the local timestamp date over stale date-only fields and retains passed times',()=>{
+  const f=fixture();f.app.S.tasks=[
+    {id:'exact',status:'open',deadline:'2026-10-04',deadline_at:'2026-10-05T00:30:00'},
+    {id:'tomorrow',status:'open',deadline:'2026-10-05',deadline_at:'2026-10-06T00:30:00'},
+    {id:'check',status:'open',next_check_on:'2026-10-04',next_check_at:'2026-10-05T08:00:00'}
+  ];
+  assert.deepEqual(plain(f.evaluate("todayOverview(new Date('2026-10-05T20:00:00')).tasks.map(t=>t.id)")),['exact','check']);
+});
+
+test('today refresh reads external tasks without writes and preserves its scope and dates',async()=>{
+  const f=fixture();f.evaluate('todayRefreshReady=true');
+  const task={id:'telegram',status:'open',description:'New from Telegram',deadline:'2026-10-05',planned_on:null};
+  f.api(async url=>url.includes('/commitments?')?[task]:url.includes('/projects?')?f.app.S.projects:[]);
+  assert.equal(await f.evaluate('refreshTodayData(true)'),true);
+  assert.equal(f.app.S.tasks[0].id,task.id);assert.equal(f.app.S.tasks[0].planned_on,null);
+  assert.equal(f.calls.length,4);assert.ok(f.calls.every(call=>!call.method));
+  assert.equal(await f.evaluate('refreshTodayData()'),false);assert.equal(f.calls.length,4);
+});
+
+test('background refresh leaves task editing, capture text and voice recording untouched',async()=>{
+  const f=fixture();f.evaluate('todayRefreshReady=true');
+  f.element('#captureText').value='Unsaved message';assert.equal(await f.evaluate('refreshTodayData()'),false);
+  f.element('#captureText').value='';f.app.S.task='editing';assert.equal(await f.evaluate('refreshTodayData()'),false);
+  f.app.S.task=null;f.element('#captureVoice').disabled=true;assert.equal(await f.evaluate('refreshTodayData()'),false);
+  assert.equal(f.calls.length,0);
+});
+
+test('a pending today refresh cannot overwrite later typing, navigation or a failed snapshot',async()=>{
+  const f=fixture(),gate=deferred();f.evaluate('todayRefreshReady=true');f.app.S.tasks=[{id:'existing'}];f.api(()=>gate.promise);
+  const pending=f.evaluate('refreshTodayData(true)');await tick();f.element('#captureText').value='Started while loading';gate.resolve([]);
+  assert.equal(await pending,false);assert.equal(f.app.S.tasks[0].id,'existing');assert.equal(f.element('#captureText').value,'Started while loading');
+  f.element('#captureText').value='';const next=deferred();f.api(()=>next.promise);
+  const changing=f.evaluate('refreshTodayData(true)');await tick();f.app.S.section='tasks';next.resolve([]);
+  assert.equal(await changing,false);assert.equal(f.app.S.tasks[0].id,'existing');
+  f.app.S.section='today';f.api(async()=>{throw Error('offline')});assert.equal(await f.evaluate('refreshTodayData(true)'),false);
+  assert.equal(f.app.S.tasks[0].id,'existing');assert.match(f.element('#todayRefreshStatus').textContent,/ранее загруженные/);
+});
+
+test('calendar reconnect explains invalid_grant without asking users to fix task dates',()=>{
+  const f=fixture();f.context.calendarFixture={authenticated:true,connection:{status:'needs_reconnect',lastError:'invalid_grant',email:'owner@example.test'},counts:{synced:24},issues:[]};
+  const html=f.evaluate('calendarStatusHTML(calendarFixture)');
+  assert.match(html,/Google больше не принимает сохранённое разрешение/);assert.match(html,/>Переподключить Google Calendar<\/button>/);
+  assert.doesNotMatch(html,/data-calendar-sync|Проверьте записи ниже и повторите/);
+  f.context.calendarFixture.connection.lastError='unknown';assert.match(f.evaluate('calendarStatusHTML(calendarFixture)'),/Доступ к Google Calendar нужно восстановить/);
+  f.context.calendarFixture.connection.status='connected';f.context.calendarFixture.connection.lastError=null;
+  assert.match(f.evaluate('calendarStatusHTML(calendarFixture)'),/data-calendar-sync/);
+  f.context.calendarFixture.authenticated=false;const anon=f.evaluate('calendarStatusHTML(calendarFixture)');
+  assert.doesNotMatch(anon,/owner@example.test|invalid_grant|Переподключить/);assert.match(anon,/>Подключить Google Calendar<\/button>/);
 });
