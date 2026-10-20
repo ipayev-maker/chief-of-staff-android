@@ -59,7 +59,7 @@ export function messageText(message){
   return {text:raw.trim(),attachments:[...new Set(attachments)],external,truncated:raw.length>10000};
 }
 export function snapshot(messages,{threadId,selection,ownerEmail,processedIds=[],contextDays=90,limit=10,projectId=null}){
-  const meta={type:'gmail',thread_id:threadId,owner_email:ownerEmail,project_id:projectId,context_days:contextDays,message_limit:limit,total_messages:selection.total,omitted_messages:selection.omitted,messages:[],new_message_ids:[],partial:false};
+  const meta={type:'gmail',subject:header(messages.at(-1)||{},'subject').slice(0,200)||'Переписка Gmail',thread_id:threadId,owner_email:ownerEmail,project_id:projectId,context_days:contextDays,message_limit:limit,total_messages:selection.total,omitted_messages:selection.omitted,messages:[],new_message_ids:[],partial:false};
   let source='';const retained=[];
   // At most 58k UTF-16 units in a single review, prioritise the newest messages.
   let budget=58000;

@@ -19,7 +19,7 @@ Deno.serve(async (request: Request) => {
       // One app owner may use a work mailbox and a personal calendar.
       // Only the exact server-configured Gmail address can authorize mail.
       const gmailConfig={...config,allowedEmail:config.gmailAllowedEmail??config.allowedEmail};
-      const gmail=createGmailHandler({store,google:createGoogle({config:gmailConfig,scopes:GMAIL_SCOPES}),config:gmailConfig,analyze:item=>inbox.process(item)});
+      const gmail=createGmailHandler({store,google:createGoogle({config:gmailConfig,scopes:GMAIL_SCOPES}),config:gmailConfig,analyze:item=>inbox.process(item),recover:item=>inbox.recover(item.id)});
       cachedHandler=request=>{const url=new URL(request.url);return url.pathname.includes('/gmail/')||url.pathname.endsWith('/callback')&&url.searchParams.get('state')?.startsWith('gmail.')?gmail(request):calendar(request)};
       cacheUntil = Date.now() + 60000;
     }
