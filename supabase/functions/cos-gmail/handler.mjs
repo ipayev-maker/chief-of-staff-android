@@ -22,7 +22,9 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
   const current=async()=> (await store.page(C,'id=eq.owner&limit=1'))[0]||null;
   async function authorized(request,connection){
     const token=readCookie(request,SESSION);if(!token||token.length>200)return false;
-    const owner=connection||(await store.page('cos_calendar_connection','select=google_sub&id=eq.owner&limit=1'))[0];
+    // Match the shared app-session identity used by Calendar and Notes.
+    // The connected mailbox is a source, not necessarily the calendar account.
+    const owner=(await store.page('cos_calendar_connection','select=google_sub&id=eq.owner&limit=1'))[0]||connection;
     if(!owner)return false;
     const session=(await store.page('cos_calendar_sessions',eq('token_hash',await sha256(token))+'&expires_at=gt.'+encodeURIComponent(stamp())+'&limit=1'))[0];
     return !!session&&session.google_sub===owner.google_sub;
@@ -54,13 +56,16 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         const tokens=await google.exchangeCode({code,verifier:states[0].verifier});stage='verify_identity';
         const identity=await google.userInfo(tokens.access_token);stage='read_owner';
         const existing=await current(),calendar=(await store.page('cos_calendar_connection','select=google_sub&id=eq.owner&limit=1'))[0];
-        if(!identity.email_verified||identity.email.toLowerCase()!==config.allowedEmail.toLowerCase()||existing&&existing.google_sub!==identity.sub||calendar&&calendar.google_sub!==identity.sub)return redirect('error','wrong_account',[cleared]);
+        if(!identity.email_verified||identity.email.toLowerCase()!==config.allowedEmail.trim().toLowerCase()||existing&&existing.google_sub!==identity.sub)return redirect('error','wrong_account',[cleared]);
         const cipher=tokens.refresh_token?await encryptSecret(tokens.refresh_token,config.tokenKey):existing?.refresh_token_cipher;
         if(!cipher)return redirect('error','refresh_token_missing',[cleared]);
         stage='save_connection';
         await store.upsert(C,{id:'owner',google_sub:identity.sub,email:identity.email,refresh_token_cipher:cipher,status:'connected',settings:existing?.settings||DEFAULT_SETTINGS,cursor:existing?.cursor||{},last_error:null},'id');
         stage='create_session';
-        const session=randomToken();await store.insert('cos_calendar_sessions',{token_hash:await sha256(session),google_sub:identity.sub,expires_at:new Date(+now()+30*86400000).toISOString()});
+        // Exact verified mailbox ownership grants the same single-owner app
+        // access. Preserve the existing app identity and Calendar credentials;
+        // never accept an arbitrary Google account or a domain-wide match.
+        const session=randomToken();await store.insert('cos_calendar_sessions',{token_hash:await sha256(session),google_sub:calendar?.google_sub||identity.sub,expires_at:new Date(+now()+30*86400000).toISOString()});
         return redirect('connected',null,[cleared,cookie(SESSION,session,30*86400)]);
       }catch(error){report(error,stage);return redirect('error',error.reason==='google_owner_mismatch'?'wrong_account':reason(error),[cleared]);}
     });
@@ -88,7 +93,9 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         const state='gmail.'+randomToken(),browser=randomToken(),verifier=randomToken(48);
         await store.remove(STATES,'expires_at=lt.'+encodeURIComponent(stamp()));
         await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browser),verifier,expires_at:new Date(+now()+600000).toISOString()});
-        const h=new Headers({...headers,Location:await google.authorizationUrl({state,verifier}),'Set-Cookie':cookie(FLOW,browser,600)});
+        const target=new URL(await google.authorizationUrl({state,verifier}));
+        target.searchParams.set('login_hint',config.allowedEmail.trim().toLowerCase());
+        const h=new Headers({...headers,Location:target.href,'Set-Cookie':cookie(FLOW,browser,600)});
         return new Response(null,{status:303,headers:h});
       }
       if(!await authorized(request,connection))return json({error:'unauthorized'},401);

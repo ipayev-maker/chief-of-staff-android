@@ -16,7 +16,10 @@ Deno.serve(async (request: Request) => {
       if (!config?.clientId || !config?.clientSecret || !config?.tokenKey || !config?.allowedEmail || !config?.cronSecret) throw Error('not_configured');
       const calendar=createHandler({store,google:createGoogle({config}),config});
       const inbox=createCommunicationInbox({store,model:createInboxModel({openRouterKey:Deno.env.get('OPENROUTER_KEY')})});
-      const gmail=createGmailHandler({store,google:createGoogle({config,scopes:GMAIL_SCOPES}),config,analyze:item=>inbox.process(item)});
+      // One app owner may use a work mailbox and a personal calendar.
+      // Only the exact server-configured Gmail address can authorize mail.
+      const gmailConfig={...config,allowedEmail:config.gmailAllowedEmail??config.allowedEmail};
+      const gmail=createGmailHandler({store,google:createGoogle({config:gmailConfig,scopes:GMAIL_SCOPES}),config:gmailConfig,analyze:item=>inbox.process(item)});
       cachedHandler=request=>{const url=new URL(request.url);return url.pathname.includes('/gmail/')||url.pathname.endsWith('/callback')&&url.searchParams.get('state')?.startsWith('gmail.')?gmail(request):calendar(request)};
       cacheUntil = Date.now() + 60000;
     }
