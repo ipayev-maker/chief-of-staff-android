@@ -1,6 +1,7 @@
 // Date-only deadlines from exact quotes, never from a rewritten task title.
 // Node 24 / Deno 2; no dependencies or I/O. Legacy callers default to Moscow;
 // inbox callers pass the configured business timezone and original source time.
+import {withoutClocks} from './time-evidence.mjs';
 const DAY=86_400_000;
 const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const weekdays=new Map([['понедельник',1],['вторник',2],['среду',3],['среда',3],['четверг',4],['пятницу',5],['пятница',5],['субботу',6],['суббота',6],['воскресенье',0],['понедельника',1],['вторника',2],['среды',3],['четверга',4],['пятницы',5],['субботы',6],['воскресенья',0]]);
@@ -16,7 +17,7 @@ function uncertain(text){return word('или|либо|примерно|орие�
 // A date-bearing clause with a negation needs clarification. "Не забудь" is
 // an instruction, not a negated deadline; keep that common idiom usable.
 function countDateMentions(text){return [...text.matchAll(/\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{4})?|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|(?<!\p{L})(?:сегодня|послезавтра|завтра|позавчера|вчера|понедельник\p{L}*|вторник\p{L}*|сред[ауы]|четверг\p{L}*|пятниц\p{L}*|суббот\p{L}*|воскресень\p{L}*)(?!\p{L})/giu)].length;}
-function sourceUncertain(source){const text=source.replace(/(?:^|\s)не\s+(?:забудь|забыть|забывайте|забывай)\s+/giu,' ');return uncertain(text)||countDateMentions(text)>1||word('не',text);}
+function sourceUncertain(source){const text=source.replace(/(?:^|\s)не\s+(?:забудь|забыть|забывайте|забывай)\s+/giu,' ');return uncertain(text)||countDateMentions(withoutClocks(text))>1||word('не',text);}
 export function dateEvidence(row,text){
   const source=typeof row?.source_text==='string'?row.source_text.trim():'';
   const date=typeof row?.date_text==='string'?row.date_text.trim():'';
@@ -33,7 +34,7 @@ export function exactDay(quote,refDate,{timeZone='Europe/Moscow'}={}){
   const text=clean(quote),today=baseDay(refDate,timeZone),year=Number(today.slice(0,4));let match,day;
   // Preserve the date portion of an explicit date + clock time. Times are not
   // invented as deadlines: the current ingestion schema stores a date only.
-  if((match=text.match(/^(.+?)\s+в\s+([0-2]?\d)(?::([0-5]\d))?(?:\s*час(?:а|ов)?)?$/))){return Number(match[2])<=23?exactDay(match[1],refDate,{timeZone}):{known:true,day:null};}
+  if((match=text.match(/^(.+?)\s+(?:в|к|до)\s+([0-2]?\d)(?:[:.]([0-5]\d))?(?:\s*час(?:а|ов)?)?$/))){return Number(match[2])<=23?exactDay(match[1],refDate,{timeZone}):{known:true,day:null};}
   if(/^\d{1,2}:\d{2}$/.test(text))return {known:true,day:null};
   if((match=text.match(/^(?:следующей\s+неделе\s+в\s+(.+)|(.+?)\s+(?:на\s+)?следующей\s+недел(?:е|и))$/))){return exactDay('следующий '+(match[1]||match[2]),refDate,{timeZone});}
   const relative={сегодня:0,завтра:1,послезавтра:2,вчера:-1,позавчера:-2};

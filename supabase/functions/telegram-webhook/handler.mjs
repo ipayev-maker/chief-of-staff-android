@@ -1,6 +1,6 @@
 // Telegram owner-only ingestion. Deno 2 / Node 24 Web APIs; injected I/O for tests.
-// Every eligible communication is durable before speech/AI processing. Applying
-// proposals is a separate, explicit owner action shared with the dashboard.
+// Every eligible communication is durable before speech/AI processing. Clear
+// direct commands create records; other proposals retain explicit review.
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP='https://chief-of-staff-v3-live.vercel.app/';
 const ok=()=>new Response('ok',{status:200,headers:{'Cache-Control':'no-store'}});
@@ -28,6 +28,27 @@ async function callbackRequestId(callback){
 }
 export function inboxReply(item){
   const url=APP+'#/inbox/'+item.id,actions=Array.isArray(item.proposal?.changes)?item.proposal.changes.filter(change=>change.selected!==false):[];
+  if(item.status==='applied'){
+    const changes=Array.isArray(item.applied_result?.changes)?item.applied_result.changes:[];
+    const created=changes.filter(c=>['task_create','meeting_create'].includes(c.kind));
+    const lines=['✅ '+(created.length===1?(created[0].kind==='meeting_create'?'Встреча создана.':'Задача создана.'):'Создано действий: '+created.length+'.')];
+    const buttons=[];
+    for(const change of created.slice(0,6)){
+      const record=change.after||{},proposal=actions.find(c=>c.id===change.id)||{},index=changes.indexOf(change);
+      const details=[proposal.meeting_date&&'Встреча: '+proposal.meeting_date+' в '+proposal.meeting_time,
+        proposal.planned_on&&'Работа: '+proposal.planned_on+(proposal.planned_time?' в '+proposal.planned_time:''),
+        proposal.deadline&&'Срок: '+proposal.deadline+(proposal.deadline_time?' в '+proposal.deadline_time:''),
+        proposal.project_title&&'Проект: '+proposal.project_title,
+        (proposal.participant_name||proposal.participant_suggestion?.name)&&'Участник: '+(proposal.participant_name||proposal.participant_suggestion.name),
+        proposal.duration_estimated&&'Длительность: 30 минут по умолчанию'].filter(Boolean);
+      lines.push('• '+String(record.description||record.title||proposal.text||'').slice(0,260)+(details.length?'\n'+details.join(' · '):''));
+      buttons.push([{text:created.length===1?'Отменить':'Отменить '+(index+1),callback_data:'ic:'+item.id+':'+index}]);
+    }
+    if(created.length>6)lines.push('Остальные действия — в карточке.');
+    if(item.proposal?.time_zone)lines.push('Часовой пояс: '+item.proposal.time_zone+'.');
+    buttons.unshift([{text:'Открыть / изменить',url}]);
+    return {text:lines.join('\n\n').slice(0,3500),reply_markup:{inline_keyboard:buttons}};
+  }
   const lines=[];
   if(item.status==='ready'){
     lines.push('📝 Сохранил во «Входящие».');
@@ -40,7 +61,7 @@ export function inboxReply(item){
     }
     if(actions.length>6)lines.push('И ещё '+(actions.length-6)+' — в карточке.');
     if(item.proposal?.summary&&typeof item.proposal.summary==='string')lines.push(item.proposal.summary.slice(0,600));
-    if(item.proposal?.questions?.length)lines.push('Есть вопросы для уточнения — откройте карточку.');
+    if(item.proposal?.questions?.length)lines.push(item.proposal.questions[0]+'\nУточнить можно в карточке.');
   }else{lines.push('📝 Сообщение сохранено во «Входящие».','Разбор пока не завершён. В карточке можно повторить обработку и проверить исходное сообщение.');}
   const buttons=[];
   if(item.status==='ready'&&lines.join('\n\n').length<=3500&&actions.length&&actions.length<=6&&!item.proposal?.questions?.length&&actions.every(action=>action.kind==='task_create'&&String(action.text||'').length<=260&&(!action.project_id||action.project_title)&&(!action.participant_id||action.participant_name))&&Number.isSafeInteger(item.revision))buttons.push([{text:'Применить всё',callback_data:'ia:'+item.id+':'+item.revision}]);
@@ -59,6 +80,15 @@ export function createTelegramWebhook({loadConfig,store,createInbox,sendTelegram
     const callback=update.callback_query;
     if(callback){
       if(!ownerMessage(callback.from,callback.message?.chat,config)||typeof callback.id!=='string'||callback.id.length>256)return ok();
+      const cancel=String(callback.data||'').match(/^ic:([0-9a-f-]+):(\d{1,2})$/i);
+      if(cancel&&UUID.test(cancel[1])&&Number(cancel[2])<30){
+        let reply;
+        try{const inbox=createInbox(config),item=itemOf(await inbox.get(cancel[1])),change=item.applied_result?.changes?.[Number(cancel[2])];
+          if(!change||!['task_create','meeting_create'].includes(change.kind))throw Error('invalid_target');
+          await inbox.cancel(item.id,{change_id:change.id});reply=change.kind==='meeting_create'?'Встреча отменена':'Задача отменена';
+        }catch{reply='Запись изменилась или пока недоступна. Откройте карточку, чтобы отменить её.'}
+        try{await sendTelegram('answerCallbackQuery',{callback_query_id:callback.id,text:reply})}catch{}return ok();
+      }
       const modern=String(callback.data||'').match(/^(ia|il):([0-9a-f-]+):(\d{1,12})$/i);
       if(modern&&UUID.test(modern[2])&&Number(modern[3])<=2147483646){
         const [,action,id,revision]=modern;let reply;
@@ -92,11 +122,11 @@ export function createTelegramWebhook({loadConfig,store,createInbox,sendTelegram
       const refDate=sentAt&&Number.isFinite(+sentAt)?sentAt.toISOString():now().toISOString();
       const forwarded=!!message.forward_origin||message.forward_date!==undefined;
       const originalTimestamp=message.forward_origin?.date??message.forward_date,originalDate=Number.isSafeInteger(originalTimestamp)&&originalTimestamp>0?new Date(originalTimestamp*1000):null;
-      const sourceMeta={channel:'telegram',type:voice?'voice':'text',owner_id:message.from.id,message_date:refDate,...(voice?{voice:{file_id:voice.file_id,file_unique_id:voice.file_unique_id,duration:voice.duration,file_size:voice.file_size,mime_type:voice.mime_type},caption:text}:{}),...(forwarded?{forwarded:true,original_date:originalDate&&Number.isFinite(+originalDate)?originalDate.toISOString():null}:{})};
+      const sourceMeta={channel:'telegram',type:voice?'voice':'text',owner_id:message.from.id,message_date:refDate,auto_create:!forwarded,...(voice?{voice:{file_id:voice.file_id,file_unique_id:voice.file_unique_id,duration:voice.duration,file_size:voice.file_size,mime_type:voice.mime_type},caption:text}:{}),...(forwarded?{forwarded:true,original_date:originalDate&&Number.isFinite(+originalDate)?originalDate.toISOString():null}:{})};
       const saved=await store.rpc('cos_inbox_capture_telegram',{p_update_id:update.update_id,p_message_id:message.message_id,p_chat_id:message.chat.id,p_user_id:message.from.id,p_text:sourceText,p_source_meta:sourceMeta});
       if(saved?.duplicate)return ok();let item=itemOf(saved);if(!UUID.test(item?.id||''))fail('save_not_confirmed');
       let inbox;
-      try{inbox=createInbox(config);item=itemOf(await inbox.analyze(item.id,{revision:item.revision}))}catch{if(inbox)try{item=itemOf(await inbox.get(item.id))}catch{} }
+      try{inbox=createInbox(config);item=itemOf(await inbox.analyze(item.id,{revision:item.revision}));if(inbox.autoApply)item=itemOf(await inbox.autoApply(item.id))}catch{if(inbox)try{item=itemOf(await inbox.get(item.id))}catch{} }
       // Claim is committed before sending. An uncertain send is never repeated;
       // the saved card is always available in the dashboard for manual review.
       const claimed=await store.rpc('cos_inbox_claim_reply',{p_id:item.id,p_channel:'telegram'});
