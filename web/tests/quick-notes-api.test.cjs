@@ -23,7 +23,7 @@ async function fixture() {
   const data = {
     cos_calendar_connection:[{id:'owner', google_sub:'verified-owner-sub', status:'disconnected'}],
     cos_calendar_sessions:[{token_hash:await sha256(COOKIE_TOKEN), google_sub:'verified-owner-sub', expires_at:'2026-09-24T00:00:00Z'}],
-    quick_notes:[], project_notes:[], cos_note_task_links:[],
+    quick_notes:[], project_notes:[], cos_note_task_links:[], cos_gmail_connection:[],
   };
   const calls = [];
   const matches = (row, query) => [...new URLSearchParams(query)].every(([key, condition]) => {
@@ -411,4 +411,12 @@ test('task transaction failures return safe source/conflict/validation errors wi
   }
   f.store.rpc = async () => ({task:{id:TASK}, source:{kind:'quick', id:ID, project_id:null}, replayed:'false'});
   assert.equal((await f.handler(f.request({method:'POST', path:'/' + ID + '/tasks', body:{request_id:REQUEST, task:{description:'Task'}}}))).status, 503);
+});
+
+
+test('Gmail-only owner identity uses the same verified session without Calendar provisioning',async()=>{
+  const f=await fixture();f.data.cos_calendar_connection=[];f.data.cos_gmail_connection=[{id:'owner',google_sub:'verified-owner-sub'}];
+  assert.equal((await f.handler(f.request())).status,200);
+  f.data.cos_gmail_connection[0].google_sub='another-owner';
+  assert.equal((await f.handler(f.request())).status,401);
 });

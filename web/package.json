@@ -1,6 +1,6 @@
 {
   "name": "chief-of-staff-web",
-  "version": "3.16.0",
+  "version": "3.17.0",
   "private": true,
   "scripts": {
     "build": "node build.mjs",
@@ -10,4 +10,3 @@
     "pdfjs-dist": "6.3.289"
   }
 }
-

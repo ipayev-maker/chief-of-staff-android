@@ -5,6 +5,10 @@
   "cleanUrls": true,
   "rewrites": [
     {
+      "source": "/api/gmail/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-google-calendar/gmail/:path*"
+    },
+    {
       "source": "/api/notes",
       "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-notes"
     },
@@ -106,6 +110,19 @@
     },
     {
       "source": "/api/notes/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/gmail/:path*",
       "headers": [
         {
           "key": "Cache-Control",
