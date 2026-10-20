@@ -7,7 +7,7 @@ function message(id,date,text='Пришлю образец завтра.',from='
 const clone=v=>JSON.parse(JSON.stringify(v));
 function memory(initial={}){
  const db=clone(initial),calls=[];
- const matching=(table,q)=>{const params=new URLSearchParams(q);let rows=[...(db[table]||[])];for(const [k,v]of params){if(['select','limit','order','offset'].includes(k))continue;if(v.startsWith('eq.'))rows=rows.filter(r=>String(r[k])===v.slice(3));if(v.startsWith('gt.'))rows=rows.filter(r=>r[k]>v.slice(3));}return rows.slice(0,Number(params.get('limit')||1000));};
+ const matching=(table,q)=>{const params=new URLSearchParams(q);let rows=[...(db[table]||[])];const field=(r,k)=>k.split(/->>?/).reduce((value,key)=>value?.[key],r);for(const [k,v]of params){if(['select','limit','order','offset'].includes(k))continue;if(k==='or'){rows=rows.filter(r=>v.slice(1,-1).split(',').some(condition=>condition.endsWith('.is.null')?field(r,condition.slice(0,-8))==null:condition.endsWith('.eq.1')&&String(field(r,condition.slice(0,-5)))==='1'));continue;}if(v.startsWith('eq.'))rows=rows.filter(r=>String(field(r,k))===v.slice(3));if(v.startsWith('gt.'))rows=rows.filter(r=>field(r,k)>v.slice(3));if(v.startsWith('in.'))rows=rows.filter(r=>v.slice(4,-1).split(',').includes(String(field(r,k))));}return rows.slice(0,Number(params.get('limit')||1000));};
  return {db,calls,async page(t,q){calls.push(['page',t,q]);return clone(matching(t,q))},async list(t,q){return this.page(t,q)},async insert(t,v){calls.push(['insert',t]);(db[t]??=[]).push(clone(v));return clone(v)},async patch(t,q,v){calls.push(['patch',t,clone(v)]);const rows=matching(t,q);for(const r of rows)Object.assign(r,clone(v));return clone(rows)},async upsert(t,v,key){const r=(db[t]||[]).find(r=>r[key]===v[key]);if(r){Object.assign(r,clone(v));return clone(r)}return this.insert(t,v)},async remove(t,q){const rows=matching(t,q);db[t]=(db[t]||[]).filter(r=>!rows.includes(r));return clone(rows)},async rpc(name,args){calls.push(['rpc',name,clone(args)]);if(name==='cos_gmail_claim_lock')return true;if(name==='cos_gmail_release_lock')return null;if(name==='cos_gmail_capture')return {item:{id:'11111111-1111-4111-8111-111111111111',revision:1},duplicate:false};throw Error(name)}};
 }
 test('empty scope fails closed; settings reject search operators and broad domains',async()=>{
@@ -222,4 +222,17 @@ test('Gmail progress distinguishes discovery, import and analysis; truncated tex
  assert.match(ui.progressText({progress:{found:40,imported:5,ready:3,queued:35,analyzing:1,errors:1,discovering:true}}),/Найдено цепочек: 40.*Загружено: 5.*Ошибок разбора: 1/);
  const item={id:'11111111-1111-4111-8111-111111111111',revision:1,status:'captured',source_text:'Исходник',source_meta:{type:'gmail',subject:'Заказ',messages:[{id:'a'}],total_messages:1,partial:true,omitted_messages:0,context_days:90,message_limit:10}};
  const html=inbox.renderDetail(inbox.createSession(item));assert.match(html,/Длинный текст письма сокращён/);assert.doesNotMatch(html,/Добавить 10 писем/);
+});
+
+test('automatic retry is bounded to two slots and skips second failures, preserving capacity for new mail',async()=>{
+ const {syncMail}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');
+ const connection={id:'owner',status:'connected',settings:{...m.DEFAULT_SETTINGS,enabled:true,ai_consent:true,label_ids:['Label_work']},cursor:{mode:'history',history_id:'1'}};
+ const rows=[{id:'old-error',status:'error',error_code:'invalid_analysis'},...Array.from({length:4},(_,i)=>({id:'error'+i,status:'error',error_code:'invalid_analysis',proposal:{analysis:{attempts:i===0?2:1}}})),...Array.from({length:4},(_,i)=>({id:'new'+i,status:'captured'}))].map(r=>({...r,revision:1,source_meta:{type:'gmail'}}));
+ const store=memory({cos_gmail_connection:[connection],cos_communication_inbox:rows});const calls=[];
+ const analyze=async item=>{calls.push(item.id);const row=store.db.cos_communication_inbox.find(r=>r.id===item.id);row.status='error';row.error_code='invalid_analysis';row.proposal={analysis:{attempts:2}};return {item:row}};
+ await syncMail({store,mail:{get:async()=>({historyId:'2',history:[]})},connection,analyze,now:()=>NOW});
+ assert.deepEqual(calls,['old-error','error1','new0','new1','new2']);
+ assert.equal(calls.includes('error0'),false);
+ calls.length=0;await syncMail({store,mail:{get:async()=>({historyId:'2',history:[]})},connection,analyze,now:()=>NOW});
+ assert.deepEqual(calls,['error2','error3','new3']);
 });

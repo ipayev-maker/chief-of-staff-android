@@ -227,7 +227,8 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     if(data.correction)corrections.push({text:data.correction.trim(),created_at:now().toISOString()});
     if(corrections.length>20||corrections.reduce((n,c)=>n+c.text.length,0)>15000)fail(400,'corrections_too_large');
     const generationId=uuid(),started=now().toISOString(),attempt=uuid();let generated,voiceFailure=null;
-    const analysis={id:generationId,model:MODEL,usage:{},duration_ms:0,status:'processing',started_at:started};
+    const attempts=(Number.isSafeInteger(item.proposal?.analysis?.attempts)?item.proposal.analysis.attempts:item.status==='error'?1:0)+1;
+    const analysis={id:generationId,model:MODEL,usage:{},duration_ms:0,status:'processing',started_at:started,attempts};
     item=await update(item,{status:'processing',attempt_id:attempt,error_code:null,proposal:{...item.proposal,corrections,analysis}});
     try{
       if(item.source_meta?.type==='voice'||item.source_meta?.voice){

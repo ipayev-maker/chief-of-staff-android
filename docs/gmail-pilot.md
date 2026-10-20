@@ -106,3 +106,10 @@ checks AI consent and the inbox revision and never applies business changes.
 The inbox refreshes Gmail progress while idle and accepts only newer revisions,
 without replacing edits. Single long-message truncation is distinguished from
 omitted older messages, so it no longer offers irrelevant history expansion.
+
+## 3.17.4 bounded automatic retry
+
+At most two failed invalid/unavailable analyses take slots in a later tick. The
+analysis attempt counter permits only one automatic retry, including results
+created before the counter existed. New captures keep the remaining slots.
+Model instructions request short, contiguous quotes rather than stitched passages.
