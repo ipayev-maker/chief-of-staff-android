@@ -120,3 +120,50 @@ test('Gmail start and callback preserve browser binding and create an owner sess
  const callback=await h(new Request(APP_ORIGIN+'/api/google-calendar/callback?state='+auth.state+'&code=synthetic-code',{headers:{Cookie:browser}}));assert.equal(callback.status,303);assert.equal(new URL(callback.headers.get('Location')).searchParams.get('gmail'),'connected');assert.match(callback.headers.get('Set-Cookie'),/__Host-cos-calendar-session=/);assert.equal(store.db.cos_gmail_connection[0].status,'connected');assert.equal(store.db.cos_calendar_sessions.length,1);assert.equal(store.db.cos_gmail_oauth_states.length,0);
  const replay=await h(new Request(APP_ORIGIN+'/api/google-calendar/callback?state='+auth.state+'&code=synthetic-code',{headers:{Cookie:browser}}));assert.equal(new URL(replay.headers.get('Location')).searchParams.get('reason'),'invalid_state');
 });
+
+async function workMailboxLogin({identity={sub:'work-sub',email:'work@example.com',email_verified:true},existingMail}={}){
+ const {createGmailHandler}=await import(base+'handler.mjs'),{APP_ORIGIN,sha256}=await import('../../supabase/functions/cos-google-calendar/google.mjs');
+ const personal={id:'owner',google_sub:'personal-sub',email:'personal@example.com',status:'needs_reconnect',refresh_token_cipher:'unchanged-personal-cipher',calendar_id:'personal-calendar'};
+ const store=memory({cos_calendar_connection:[personal],cos_calendar_sessions:[{token_hash:await sha256('previous-personal-session'),google_sub:'personal-sub',expires_at:'2026-10-21T18:00:00Z'}],...(existingMail?{cos_gmail_connection:[existingMail]}:{})});let auth;
+ const google={authorizationUrl:async args=>{auth=args;return 'https://accounts.google.com/synthetic'},exchangeCode:async()=>({access_token:'synthetic-access',refresh_token:'synthetic-refresh'}),userInfo:async()=>identity};
+ const h=createGmailHandler({store,google,config:{allowedEmail:'work@example.com',tokenKey:Buffer.alloc(32,7).toString('base64')},now:()=>NOW});
+ const start=await h(new Request(APP_ORIGIN+'/api/gmail/start',{method:'POST',headers:{Origin:APP_ORIGIN}}));
+ assert.equal(new URL(start.headers.get('Location')).searchParams.get('login_hint'),'work@example.com');
+ const r=await h(new Request(APP_ORIGIN+'/api/google-calendar/callback?state='+auth.state+'&code=synthetic-code',{headers:{Cookie:start.headers.get('Set-Cookie').split(';')[0]}}));
+ return {store,h,r,personal,APP_ORIGIN};
+}
+
+test('work Gmail creates a shared app session without changing the personal calendar',async()=>{
+ const {store,h,r,personal,APP_ORIGIN}=await workMailboxLogin();
+ assert.equal(new URL(r.headers.get('Location')).searchParams.get('gmail'),'connected');
+ assert.equal(store.db.cos_gmail_connection[0].google_sub,'work-sub');assert.equal(store.db.cos_gmail_connection[0].email,'work@example.com');
+ assert.equal(store.db.cos_calendar_sessions.at(-1).google_sub,'personal-sub');assert.deepEqual(store.db.cos_calendar_connection,[personal]);
+ const Cookie=r.headers.getSetCookie().find(c=>c.startsWith('__Host-cos-calendar-session=')).split(';')[0];
+ const status=await h(new Request(APP_ORIGIN+'/api/gmail/status',{headers:{Cookie}}));assert.equal((await status.json()).authenticated,true);
+ const previous=await h(new Request(APP_ORIGIN+'/api/gmail/status',{headers:{Cookie:'__Host-cos-calendar-session=previous-personal-session'}}));assert.equal((await previous.json()).authenticated,true);
+ const {createNotesHandler}=await import('../../supabase/functions/cos-notes/handler.mjs');
+ const notes=createNotesHandler({store,now:()=>NOW});assert.equal((await notes(new Request(APP_ORIGIN+'/api/notes',{headers:{Cookie}}))).status,200);
+ const {createHandler}=await import('../../supabase/functions/cos-google-calendar/handler.mjs');
+ const calendar=createHandler({store,google:{},config:{},now:()=>NOW});const calendarStatus=await calendar(new Request(APP_ORIGIN+'/api/google-calendar/status',{headers:{Cookie}}));
+ const data=await calendarStatus.json();assert.equal(data.authenticated,true);assert.equal(data.connection.email,'personal@example.com');
+ await h(new Request(APP_ORIGIN+'/api/gmail/disconnect',{method:'POST',headers:{Cookie,Origin:APP_ORIGIN},body:'{}'}));
+ assert.deepEqual(store.db.cos_calendar_connection,[personal]);assert.equal(store.db.cos_gmail_connection[0].refresh_token_cipher,null);assert.equal((await notes(new Request(APP_ORIGIN+'/api/notes',{headers:{Cookie}}))).status,200);
+});
+
+test('separate mailbox support still denies unapproved, unverified or replaced identities',async()=>{
+ for(const [identity,existingMail] of [
+  [{sub:'personal-sub',email:'personal@example.com',email_verified:true}],
+  [{sub:'coworker',email:'colleague@example.com',email_verified:true}],
+  [{sub:'work-sub',email:'work@example.com',email_verified:false}],
+  [{sub:'replacement-sub',email:'work@example.com',email_verified:true},{id:'owner',google_sub:'work-sub',email:'work@example.com'}]
+ ]){
+  const {store,r,personal}=await workMailboxLogin({identity,existingMail});
+  assert.equal(new URL(r.headers.get('Location')).searchParams.get('reason'),'wrong_account');assert.equal(store.db.cos_calendar_sessions.length,1);assert.deepEqual(store.db.cos_calendar_connection,[personal]);assert.equal(store.db.cos_gmail_connection?.length||0,existingMail?1:0);
+ }
+});
+
+test('mailbox subject alone is not a valid shared owner session when a calendar owner exists',async()=>{
+ const {store,h,APP_ORIGIN}=await workMailboxLogin();const {sha256}=await import('../../supabase/functions/cos-google-calendar/google.mjs');
+ store.db.cos_calendar_sessions.push({token_hash:await sha256('wrong-sub-session'),google_sub:'work-sub',expires_at:'2026-10-21T18:00:00Z'});
+ const result=await h(new Request(APP_ORIGIN+'/api/gmail/status',{headers:{Cookie:'__Host-cos-calendar-session=wrong-sub-session'}}));assert.equal((await result.json()).authenticated,false);
+});

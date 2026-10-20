@@ -1,6 +1,6 @@
 {
   "name": "chief-of-staff-web",
-  "version": "3.17.1",
+  "version": "3.17.2",
   "private": true,
   "scripts": {
     "build": "node build.mjs",

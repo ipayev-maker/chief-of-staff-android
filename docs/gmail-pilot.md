@@ -1,4 +1,4 @@
-# Gmail pilot · 3.17.0
+# Gmail pilot · 3.17.2
 
 Gmail feeds the existing private communication inbox. It never sends, moves,
 deletes or marks email as read. Import does not change tasks; applying a review
@@ -21,6 +21,26 @@ Existing Google OAuth configuration remains in Vault. Gmail refresh credentials
 are encrypted in a separate service-only table. Disconnect drops the Gmail token
 without revoking Calendar's entire Google grant. Google can still require renewed
 consent, including external apps in Testing; indefinite token validity is not promised.
+
+### Separate work and personal accounts
+
+The server-only `cos_calendar_config` JSON accepts `gmailAllowedEmail` for the
+exact work mailbox. `allowedEmail` remains the personal Calendar account.
+Omitting the optional field retains the original same-account behavior. Both
+Gmail code exchange and callback checks use the work-mailbox configuration; the
+Google account chooser receives it as a hint, not as proof of identity.
+
+The two addresses are explicitly authorized identities of this app's single
+owner. A verified Gmail callback issues a shared app session using the existing
+Calendar owner's subject, or the Gmail subject if no Calendar connection exists
+yet. Gmail, Calendar and Notes therefore accept the same session. The mailbox's
+subject and encrypted refresh token stay in the separate Gmail connection; the
+callback never changes Calendar credentials. Reconnecting an existing mailbox
+still requires its original subject. Other Workspace users are not permitted.
+
+For an OAuth app in Testing, add the work Google account under Google Auth
+Platform → Audience → Test users. This Cloud setting is separate from the
+server's allowed-address check and must be changed by the Cloud project owner.
 
 ## Reading boundaries
 
