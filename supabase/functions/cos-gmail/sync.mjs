@@ -111,8 +111,11 @@ export async function syncMail({store,mail,connection,now=()=>new Date(),analyze
       recovered=repaired.filter(r=>r.status==='fulfilled'&&r.value?.item?.status==='ready').length;
     }
     if(analyze){
-      const captured=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail&status=eq.captured&order=created_at.asc&limit=5');
-      const results=await Promise.allSettled(captured.map(item=>analyze(item)));
+      // One automatic retry for invalid/temporary analysis, in a later tick.
+      // Never loop paid model calls indefinitely, and leave slots for new mail.
+      const retry=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail&status=eq.error&error_code=in.(invalid_analysis,analysis_unavailable)&or=(proposal->analysis->>attempts.is.null,proposal->analysis->>attempts.eq.1)&order=updated_at.asc&limit=2');
+      const captured=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail&status=eq.captured&order=created_at.asc&limit='+(5-retry.length));
+      const results=await Promise.allSettled([...retry,...captured].map(item=>analyze(item)));
       for(const result of results){if(result.status==='fulfilled'&&result.value?.item?.status==='ready')analyzed++;else analysis_errors++;}
     }
   }
