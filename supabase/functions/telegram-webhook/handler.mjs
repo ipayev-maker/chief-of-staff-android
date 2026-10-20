@@ -53,7 +53,7 @@ export function inboxReply(item){
   if(item.status==='ready'){
     lines.push('📝 Сохранил во «Входящие».');
     if(actions.length)lines.push('Предлагаю изменения — проверьте и подтвердите:');
-    else lines.push('Новых действий не выделено. Исходное сообщение сохранено как заметка.');
+    else lines.push(item.proposal?.questions?.length?'Не удалось уверенно определить действие. Исходное сообщение сохранено.':'Новых действий не выделено. Исходное сообщение сохранено как заметка.');
     for(const action of actions.slice(0,6)){
       const label=String(action.description||action.title||action.text||'').trim(),kind={task_create:action.direction==='to_me'?'Ждём':'Задача',task_update:'Изменение задачи',meeting_create:'Встреча',project_state:'Состояние проекта',project_entry:'Договорённость'}[action.kind]||'Изменение';
       const details=[action.kind==='meeting_create'&&action.meeting_date&&'Начало: '+action.meeting_date+' '+(action.meeting_time||'—')+' ('+item.proposal.time_zone+') · '+action.duration_minutes+' мин'+(action.duration_estimated?' по умолчанию':''),action.project_title&&'Проект: '+action.project_title,action.participant_name&&'Участник: '+action.participant_name,action.deadline&&'Срок: '+action.deadline+(action.deadline_time?' '+action.deadline_time+(item.proposal?.time_zone?' ('+item.proposal.time_zone+')':''):'')].filter(Boolean);

@@ -176,3 +176,20 @@ test('updating task text preserves an existing work interval and deadline timest
  const patch=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].patch;
  assert.equal(patch.status,'completed');for(const field of ['planned_on','planned_start_at','planned_end_at','deadline','deadline_at'])assert.equal(Object.hasOwn(patch,field),false,field);
 });
+
+test('legacy voice retry reads the original again once and records the transcription model',async()=>{
+ const {createCommunicationInbox}=await import(modulePath),fixture=setup({source:'[Голосовое сообщение]',meta:{type:'voice',audio_path:'private/original.ogg'},raw:{summary:'',changes:[],questions:[]}});
+ fixture.setRow({status:'ready',transcript:'Сегодня в двенадцать три часа соколовый.'});let count=0;
+ fixture.voice={model:'openai/gpt-4o-transcribe',async transcribe(){count++;return 'Сегодня в двенадцать встреча с Соколовой.'}};
+ const service=createCommunicationInbox(fixture);let result=await service.analyze(id,{revision:1});
+ assert.equal(count,1);assert.equal(result.item.proposal.analysis.transcription_model,fixture.voice.model);
+ assert.equal(result.item.proposal.changes[0].meeting_time,'12:00');assert.equal(result.item.status,'ready');
+ const atModel=fixture.calls.find(c=>c[0]==='model')[1];assert.equal(atModel.transcript,'Сегодня в двенадцать встреча с Соколовой.');
+ result=await service.analyze(id,{revision:result.item.revision});assert.equal(count,1);assert.equal(fixture.calls.some(c=>c[0]==='cos_inbox_apply'),false);
+});
+test('owner text correction is not overwritten by upgrading speech recognition',async()=>{
+ const {createCommunicationInbox}=await import(modulePath),fixture=setup({source:'[Голосовое сообщение]',meta:{type:'voice',audio_path:'private/original.ogg'},raw:{summary:'',changes:[],questions:[]}});
+ fixture.setRow({status:'ready',transcript:'Старая расшифровка.'});fixture.voice={model:'openai/gpt-4o-transcribe',async transcribe(){throw Error('must not overwrite owner correction')}};
+ const {item}=await createCommunicationInbox(fixture).analyze(id,{revision:1,correction:'Встреча с Соколовой 21.10.2026 в 12:00.'});
+ assert.equal(item.status,'ready');assert.equal(item.transcript,'Старая расшифровка.');assert.equal(item.proposal.corrections.length,1);
+});

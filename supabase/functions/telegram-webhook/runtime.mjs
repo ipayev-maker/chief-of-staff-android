@@ -11,6 +11,7 @@ export function createTelegramRuntime({url,serviceKey,botToken,openRouterKey,fet
   return {
     store,now,loadConfig:()=>store.rpc('cos_notes_get_config'),
     createInbox:config=>createCommunicationInbox({store,model,now,voice:{
+      model:voice.model,
       save:args=>voice.save({...args,ownerId:config.telegramOwnerUserId}),
       transcribe:args=>voice.transcribe({...args,ownerId:config.telegramOwnerUserId}),
       read:args=>voice.read({...args,ownerId:config.telegramOwnerUserId})

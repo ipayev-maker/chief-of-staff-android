@@ -110,3 +110,12 @@ Deploy the additive cancel RPC, then `cos-notes` and the dashboard, and finally
 imports the communication service (`cos-google-calendar` also hosts Gmail).
 Run `automatic-capture.test.cjs`, the full Node suite and the rolled-back database
 smoke test `supabase/tests/inbox-cancel-created-smoke.sql`.
+
+
+### Voice recognition repair (3.18.1)
+
+Voice capture now uses `openai/gpt-4o-transcribe` through the existing OpenRouter STT endpoint. OpenRouter currently ignores the generic `prompt` parameter, so no unsupported vocabulary hint is sent. The recognized model is persisted in proposal analysis metadata. Retrying an uncorrected legacy voice card re-reads the original private audio once with the current model. Existing owner corrections take precedence, and prior transcripts remain in the immutable inbox update receipts.
+
+Literal spoken hours (including day-period qualifiers) are grounded locally for meetings and task work times. Unsupported number sequences such as “двенадцать три часа” stay unresolved; they are never truncated to 12:00 or invented as 12:03. A narrow fallback recovers one explicit short appointment when the extraction model returns no changes solely because a name is unfamiliar. It preserves the name as spoken, creates no participant records, and retains existing uncertainty/forward/age safeguards. Ambiguous voice replies ask to correct the transcription instead of displaying invented times from the model summary.
+
+Validation: provider request contract, voice retry/correction precedence, spoken-hour meeting/task creation, malformed transcription, negations, examples, forwards, and full regression suite.
