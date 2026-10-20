@@ -9,9 +9,15 @@ const json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{...he
 const cookie=(name,value,age)=>`${name}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${age}`;
 const readCookie=(r,name)=>(r.headers.get('Cookie')||'').split(';').map(v=>v.trim().split('=')).find(v=>v[0]===name)?.[1]||'';
 function redirect(result,reason,cookies=[]){const h=new Headers({...headers,Location:`${APP_ORIGIN}/?gmail=${result}${reason?'&reason='+encodeURIComponent(reason):''}#/inbox`});for(const c of cookies)h.append('Set-Cookie',c);return new Response(null,{status:303,headers:h})}
-const knownErrors=new Set(['invalid_grant','missing_required_scopes','accessNotConfigured','insufficientPermissions','rateLimitExceeded','userRateLimitExceeded','invalid_settings','scope_required','invalid_depth','thread_review_pending','gmail_network_error','mail_too_large','import_paused','analysis_consent_required']);
-const reason=e=>knownErrors.has(e?.reason||e?.message)?e.reason||e.message:'gmail_request_failed';
-export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze}){
+const knownErrors=new Set(['invalid_grant','invalid_client','unauthorized_client','missing_required_scopes','accessNotConfigured','insufficientPermissions','rateLimitExceeded','userRateLimitExceeded','invalid_settings','scope_required','invalid_depth','thread_review_pending','gmail_network_error','mail_too_large','import_paused','analysis_consent_required']);
+const reason=e=>knownErrors.has(e?.reason||e?.message)?e.reason||e.message:['STORE_TIMEOUT','STORE_NETWORK'].includes(e?.code)?'gmail_temporarily_unavailable':'gmail_request_failed';
+export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,logger=console}){
+  // Allowlisted metadata only: never log request URLs, cookies, tokens,
+  // exception messages/stacks or provider/database response bodies.
+  function report(error,stage){
+    const code=typeof error?.code==='string'&&/^(?:[0-9A-Z]{5}|PGRST\d{3}|STORE_[A-Z_]+)$/.test(error.code)?error.code:reason(error);
+    try{logger.error(JSON.stringify({component:'gmail',stage,code,status:Number.isInteger(error?.status)?error.status:0}))}catch{}
+  }
   const stamp=()=>now().toISOString();
   const current=async()=> (await store.page(C,'id=eq.owner&limit=1'))[0]||null;
   async function authorized(request,connection){
@@ -33,7 +39,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
     try{
       const result=await syncMail({store,mail:await mail(connection),connection,now,analyze});
       await store.patch(C,'id=eq.owner',{last_sync_at:stamp(),last_error:null});return json(result);
-    }catch(error){const code=reason(error);await store.patch(C,'id=eq.owner',{last_error:code,...(error.status===401||code==='invalid_grant'?{status:'needs_reconnect'}:{})});return json({ok:false,reason:code});}
+    }catch(error){report(error,'sync');const code=reason(error);await store.patch(C,'id=eq.owner',{last_error:code,...(error.status===401||code==='invalid_grant'?{status:'needs_reconnect'}:{})});return json({ok:false,reason:code});}
   }
   async function callback(request,url){
     const cleared=cookie(FLOW,'',0),state=url.searchParams.get('state'),browser=readCookie(request,FLOW);
@@ -43,26 +49,30 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
     if(url.searchParams.has('error'))return redirect('error','denied',[cleared]);
     const code=url.searchParams.get('code');if(!code||code.length>4096)return redirect('error','oauth_failed',[cleared]);
     const result=await locked(async()=>{
+      let stage='exchange_code';
       try{
-        const tokens=await google.exchangeCode({code,verifier:states[0].verifier}),identity=await google.userInfo(tokens.access_token);
+        const tokens=await google.exchangeCode({code,verifier:states[0].verifier});stage='verify_identity';
+        const identity=await google.userInfo(tokens.access_token);stage='read_owner';
         const existing=await current(),calendar=(await store.page('cos_calendar_connection','select=google_sub&id=eq.owner&limit=1'))[0];
         if(!identity.email_verified||identity.email.toLowerCase()!==config.allowedEmail.toLowerCase()||existing&&existing.google_sub!==identity.sub||calendar&&calendar.google_sub!==identity.sub)return redirect('error','wrong_account',[cleared]);
         const cipher=tokens.refresh_token?await encryptSecret(tokens.refresh_token,config.tokenKey):existing?.refresh_token_cipher;
         if(!cipher)return redirect('error','refresh_token_missing',[cleared]);
+        stage='save_connection';
         await store.upsert(C,{id:'owner',google_sub:identity.sub,email:identity.email,refresh_token_cipher:cipher,status:'connected',settings:existing?.settings||DEFAULT_SETTINGS,cursor:existing?.cursor||{},last_error:null},'id');
+        stage='create_session';
         const session=randomToken();await store.insert('cos_calendar_sessions',{token_hash:await sha256(session),google_sub:identity.sub,expires_at:new Date(+now()+30*86400000).toISOString()});
         return redirect('connected',null,[cleared,cookie(SESSION,session,30*86400)]);
-      }catch(error){return redirect('error',error.reason==='google_owner_mismatch'?'wrong_account':reason(error),[cleared]);}
+      }catch(error){report(error,stage);return redirect('error',error.reason==='google_owner_mismatch'?'wrong_account':reason(error),[cleared]);}
     });
     return result.status===409?redirect('error','connection_busy',[cleared]):result;
   }
   return async request=>{
+    const url=new URL(request.url),route=url.pathname.split('/').filter(Boolean).at(-1);
     try{
-      const url=new URL(request.url),route=url.pathname.split('/').filter(Boolean).at(-1);
-      if(request.method==='GET'&&route==='callback')return callback(request,url);
+      if(request.method==='GET'&&route==='callback')return await callback(request,url);
       if(route==='tick'&&request.method==='POST'){
         if(!config.cronSecret||!safeEqual(request.headers.get('Authorization')||'','Bearer '+config.cronSecret))return json({error:'unauthorized'},401);
-        return locked(async()=>sync(await current()));
+        return await locked(async()=>sync(await current()));
       }
       const connection=await current();
       if(route==='status'&&request.method==='GET'){
@@ -85,7 +95,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
       const raw=await request.text();if(raw.length>16384)return json({error:'request_too_large'},413);
       let data;try{data=raw?JSON.parse(raw):{}}catch{return json({error:'invalid_json'},400)}
       if(!connection)return json({error:'not_connected'},409);
-      return locked(async()=>{
+      return await locked(async()=>{
         const latest=await current();
         if(!await authorized(request,latest))return json({error:'unauthorized'},401);
         if(route==='settings'){
@@ -113,6 +123,10 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         // review with revision checks, never the mailbox-wide depth setting.
         await store.rpc('cos_gmail_expand',{p_thread_id:thread.thread_id,p_revision:data.revision,p_days:data.context_days,p_limit:data.message_limit});return json({ok:true});
       });
-    }catch(error){return json({error:reason(error)},error?.code==='PT409'?409:knownErrors.has(error?.message)?400:503)}
+    }catch(error){
+      report(error,['start','callback','status','tick','settings','labels','sync','disconnect','expand','project'].includes(route)?route:'unknown_route');
+      if(route==='start'&&request.method==='POST'||route==='callback'&&request.method==='GET')return redirect('error',reason(error),[cookie(FLOW,'',0)]);
+      return json({error:reason(error)},error?.code==='PT409'?409:knownErrors.has(error?.message)?400:503);
+    }
   };
 }
