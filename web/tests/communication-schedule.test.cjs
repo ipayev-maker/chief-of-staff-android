@@ -2,6 +2,13 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const mod=import('../../supabase/functions/cos-notes/communication-schedule.mjs');
 const options={refDate:'2026-09-30T16:45:03Z',timeZone:'Europe/Moscow'};
+test('speech clock formats do not count as a second calendar date',async()=>{
+ for(const clock of ['15.00','15:00','15 часов','15']){
+  const result=await parse('Сегодня в '+clock+' встреча с Сергеем Соколовым.');
+  assert.equal(result?.meeting_date,'2026-09-30',clock);assert.equal(result?.meeting_time,'15:00',clock);
+ }
+ const numeric=await parse('01.10.2026 в 15.00 встреча с Сергеем.');assert.equal(numeric.meeting_date,'2026-10-01');
+});
 async function parse(source,extra={}){const {sourceAppointment}=await mod;return sourceAppointment({kind:'task_create',text:source,evidence:source,...extra},{...options,full:source});}
 test('clock order and literal duration are independent of rewritten model wording',async()=>{
  const a=await parse('Завтра обсудить припак с Факелом в 9:15, 45 минут.',{duration_text:'45 минут'});

@@ -5,6 +5,7 @@ const tokens=value=>key(value).split(' ').filter(Boolean);
 function nameTokenMatches(name,mention){
   if(name===mention)return true;
   if(name.length<3||mention.length<3)return false;
+  if(/(?:ов|ев|ин|ын)$/u.test(name)&&mention===name+'ым')return true;
   if(!/[аяйь]$/u.test(name))return ['а','у','ом','е'].some(end=>mention===name+end);
   const stem=name.slice(0,-1),ends={а:['ы','е','у','ой'],я:['и','е','ю','ей'],й:['я','ю','ем','е'],ь:['я','ю','ем','е','и','ью']};
   return ends[name.at(-1)]?.some(end=>mention===stem+end)||false;
@@ -14,10 +15,13 @@ export function nameMatches(name,mention){
   return a.length>0&&a.length===b.length&&a.every((word,i)=>nameTokenMatches(word,b[i]));
 }
 export function participantFor(raw,context,evidence){
-  const mention=typeof raw.participant_mention==='string'?raw.participant_mention.trim():'';
+  let mention=typeof raw.participant_mention==='string'?raw.participant_mention.trim():'';
+  const byId=context.participants.find(p=>p.id===raw.participant_id);
+  // Some model responses provide only a known ID. Ground its full inflected
+  // name in this action's evidence before accepting it.
+  if(!mention&&byId){const words=tokens(evidence),size=tokens(byId.name).length;for(let i=0;i<=words.length-size;i++){const part=words.slice(i,i+size).join(' ');if(nameMatches(byId.name,part)){mention=part;break;}}}
   const source=' '+key(evidence)+' ';
   const grounded=mention&&source.includes(' '+key(mention)+' ');
-  const byId=context.participants.find(p=>p.id===raw.participant_id);
   if(byId&&(source.includes(' '+key(byId.name)+' ')||grounded&&nameMatches(byId.name,mention)))return {id:byId.id,suggestion:null};
   if(!grounded)return {id:null,suggestion:null};
   const matches=context.participants.filter(p=>nameMatches(p.name,mention));

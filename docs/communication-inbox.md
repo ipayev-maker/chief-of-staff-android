@@ -1,7 +1,7 @@
 # Communication inbox
 
 Telegram text and voice messages are captured as private quick notes and durable
-inbox records. Email is deliberately outside this release.
+inbox records. Gmail has a separate import/review flow described in `gmail-pilot.md`.
 
 The source is saved before transcription or analysis. Voice originals live in
 the private `cos-communication-audio` bucket. Owner-authenticated audio playback
@@ -14,11 +14,19 @@ the single project-state record. Unknown people/projects and uncertain dates
 remain visible for review. Relative dates use the communication's original date
 and configured timezone; user corrections have their own timestamps.
 
-Nothing changes business records until the owner confirms. A batch applies in
-one database transaction, with task versions and project-brief revisions checked.
+New direct owner commands in Telegram can create tasks and meetings immediately
+(version 3.18.0). This applies to text and voice messages captured after deployment,
+not forwards, Gmail, old receipts or messages more than 24 hours old. Source
+quotes, dates, clock values and identities are checked before automatic creation.
+Unknown people and missing optional project/date fields do not block a task.
+Ambiguous dates, past reports, negation, existing-task changes and project edits
+remain for explicit review. A meeting requires an exact day and clock time.
+
+A batch applies in one database transaction, with task versions and project-brief
+revisions checked.
 Stable request IDs make an uncertain-response retry replay the original result.
 Conflicts roll back the entire batch. Calendar synchronization sees only the
-confirmed task changes through the existing synchronization mechanism.
+saved task and meeting changes through the existing synchronization mechanism.
 
 ## Components
 
@@ -77,3 +85,28 @@ root (`index.ts`, `handler.mjs`, `store.mjs`, `google.mjs`, `sync.mjs`,
 An unresolved participant can be created from the proposal. Creating the person
 uses the existing owner-only participants API and a stable client UUID for retry;
 an existing name requires explicit selection. This does not apply the proposal.
+
+## Direct capture (3.18.0)
+
+- `communication-auto.mjs` checks eligibility only when the trusted Telegram
+  capture metadata opts in. Shared analysis and Gmail processing never auto-apply.
+- `time-evidence.mjs` accepts literal `15:00`, `15.00`, `15 часов` and `в 15`.
+  Dotted clocks are excluded from calendar-date counting. Relative dates use the
+  original message timestamp and configured timezone, not processing time.
+- `autoApply` reuses the persisted analysis ID as the apply request ID. The
+  existing receipt/revision transaction prevents duplicate creation after retries.
+- The bot confirms actual saved entities, shows work time separately from a due
+  date and links to their inbox receipt. The applied receipt opens editable task
+  or meeting cards; meetings without a project also have an editor.
+- `inbox-cancel-created.sql` adds service-only cancellation of a created task or
+  meeting referenced by its receipt. Modified records require opening their card.
+  Repeated cancellation cannot overwrite a later reopening. Calendar's existing
+  source synchronization observes creation, edits and cancellation.
+- A meeting without a stated duration uses 30 minutes, disclosed in the reply.
+  An unresolved person's original name/evidence remains in task details or agenda.
+
+Deploy the additive cancel RPC, then `cos-notes` and the dashboard, and finally
+`telegram-webhook`. Include the new shared modules in every deployed bundle that
+imports the communication service (`cos-google-calendar` also hosts Gmail).
+Run `automatic-capture.test.cjs`, the full Node suite and the rolled-back database
+smoke test `supabase/tests/inbox-cancel-created-smoke.sql`.

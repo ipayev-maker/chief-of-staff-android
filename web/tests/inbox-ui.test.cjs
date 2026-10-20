@@ -6,6 +6,20 @@ const options={projects:[{id:PROJECT,title:'Витрины',status:'active'}],pa
 const change=(extra={})=>({id:CHANGE,kind:'task_create',selected:true,evidence:'Анна пришлёт чертёж в пятницу',project_id:PROJECT,participant_id:PERSON,text:'Получить чертёж',direction:'to_me',deadline:'2026-10-02',deadline_time:null,next_check_on:null,task_id:null,task_version:null,status:'open',entry_kind:null,brief_revision:null,...extra});
 const item=(extra={})=>({id:ID,note_id:OTHER,source_text:'Анна пришлёт чертёж в пятницу',source_meta:{type:'text'},transcript:null,status:'ready',revision:2,created_at:'2026-09-29T12:00:00Z',proposal:{version:1,summary:'Договорились получить чертёж',questions:[],changes:[change()]},...extra});
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+test('applied inbox opens actual created record and cancellation sends its receipt ID',async()=>{
+ const row=item({status:'applied',applied_at:'2026-10-21T09:00:00Z',applied_result:{changes:[{id:CHANGE,kind:'task_create',after:{id:OTHER,description:'Подготовить смету'}}]}});
+ const requests=[],opened=[];
+ const f=fixture(async(path,opt)=>{
+   if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};
+   if(path===`/inbox/${ID}/cancel`){requests.push(opt);return {item:{...row,revision:3,applied_result:{...row.applied_result,cancelled_ids:[CHANGE]}}};}
+   return {item:row};
+ },{onOpenRecord:record=>opened.push(record)});
+ await flush();await click(f,'select',{ciId:ID});
+ assert.match(f.container.innerHTML,/Открыть \/ изменить/);
+ await click(f,'open-created',{ciChange:CHANGE});assert.deepEqual(opened,[{kind:'task_create',id:OTHER}]);
+ await click(f,'cancel-created',{ciChange:CHANGE});assert.deepEqual(requests[0].body,{change_id:CHANGE});
+ assert.match(f.container.innerHTML,/Отменено/);f.controller.dispose();
+});
 let fixtureId=0;
 function fixture(request,extra={}){
   const listeners=new Map(),view={crypto:{randomUUID:()=>REQUEST},confirm:()=>true,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)};
