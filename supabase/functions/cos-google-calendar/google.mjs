@@ -141,17 +141,17 @@ function validateVerifier(verifier) {
   }
 }
 
-function validateScopes(scope) {
+function validateScopes(scope, requiredScopes = GOOGLE_SCOPES) {
   if (!nonempty(scope)) fail('missing_required_scopes', 403);
   const granted = new Set(scope.trim().split(/\s+/).map(value =>
     value === 'https://www.googleapis.com/auth/userinfo.email' ? 'email' : value,
   ));
-  if (!GOOGLE_SCOPES.every(value => granted.has(value))) {
+  if (!requiredScopes.every(value => granted.has(value))) {
     fail('missing_required_scopes', 403);
   }
 }
 
-function tokenResult(data, requireScopes) {
+function tokenResult(data, requireScopes, requiredScopes = GOOGLE_SCOPES) {
   if (!data || typeof data !== 'object' || !nonempty(data.access_token) ||
       /\s/.test(data.access_token) ||
       (data.token_type !== undefined && String(data.token_type).toLowerCase() !== 'bearer') ||
@@ -159,7 +159,7 @@ function tokenResult(data, requireScopes) {
       (data.refresh_token !== undefined && !nonempty(data.refresh_token))) {
     fail('invalid_token_response', 502);
   }
-  if (requireScopes || data.scope !== undefined) validateScopes(data.scope);
+  if (requireScopes || data.scope !== undefined) validateScopes(data.scope, requiredScopes);
   // Return only the token fields the server needs; do not propagate ID tokens
   // that have not been independently verified.
   return {
@@ -206,7 +206,7 @@ function calendarUrl(relativePath) {
   }
 }
 
-export function createGoogle({config, fetchImpl = fetch}) {
+export function createGoogle({config, fetchImpl = fetch, scopes = GOOGLE_SCOPES}) {
   if (!config || !nonempty(config.clientId) || !nonempty(config.clientSecret) ||
       !nonempty(config.allowedEmail) || typeof fetchImpl !== 'function') {
     fail('google_configuration_missing', 500);
@@ -257,7 +257,7 @@ export function createGoogle({config, fetchImpl = fetch}) {
       const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       url.search = new URLSearchParams({
         client_id: clientId, redirect_uri: CALLBACK_URL, response_type: 'code',
-        scope: GOOGLE_SCOPES.join(' '), state, access_type: 'offline',
+        scope: scopes.join(' '), state, access_type: 'offline',
         prompt: 'consent select_account', code_challenge_method: 'S256',
         code_challenge: base64url(new Uint8Array(digest)),
       }).toString();
@@ -270,7 +270,7 @@ export function createGoogle({config, fetchImpl = fetch}) {
       return tokenResult(await tokenRequest({
         grant_type: 'authorization_code', code, code_verifier: verifier,
         redirect_uri: CALLBACK_URL,
-      }), true);
+      }), true, scopes);
     },
 
     async userInfo(accessToken) {
@@ -289,7 +289,7 @@ export function createGoogle({config, fetchImpl = fetch}) {
       if (!nonempty(refreshToken)) fail('invalid_refresh_token');
       return tokenResult(await tokenRequest({
         grant_type: 'refresh_token', refresh_token: refreshToken,
-      }), false);
+      }), false, scopes);
     },
 
     calendar(accessToken) {

@@ -252,6 +252,7 @@ export function createNotesHandler({store, now = () => new Date(), inbox = creat
       store.list('cos_calendar_connection', 'select=google_sub&id=eq.owner'),
       store.list('cos_calendar_sessions', `select=google_sub,expires_at&${eq('token_hash', await sha256(token))}&expires_at=gt.${encodeURIComponent(timestamp)}`),
     ]);
+    if(!connections.length){const mailOwner=await store.page('cos_gmail_connection','select=google_sub&id=eq.owner&limit=1');if(mailOwner.length)connections.push(mailOwner[0]);}
     const owner = connections[0];
     if (connections.length !== 1 || sessions.length !== 1 || typeof owner?.google_sub !== 'string' || !owner.google_sub ||
         sessions[0].google_sub !== owner.google_sub || !(Date.parse(sessions[0].expires_at) > now().getTime())) {
