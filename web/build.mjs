@@ -2,7 +2,13 @@ import { mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const source = new URL('./index.html', import.meta.url);
-const html = await readFile(source, 'utf8');
+const sourceHtml = await readFile(source, 'utf8');
+const {version} = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'));
+if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid application version');
+// The browser tab and runtime build marker must use the release version.
+const html = sourceHtml
+  .replace(/<title>[^<]*<\/title>/, `<title>Chief of Staff v${version}</title>`)
+  .replace(/const BUILD='v\d+\.\d+\.\d+/, `const BUILD='v${version}`);
 if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD=")) {
   throw new Error('Invalid Chief of Staff source bundle');
 }
