@@ -87,3 +87,36 @@ test('real REST store uses thread_id ordering for Gmail tables without id column
  const store=createStore({url:'https://db.example.com',serviceKey:'synthetic-service-key',fetchImpl:async(u)=>{url=new URL(u);return new Response('[]',{headers:{'content-type':'application/json'}})}});
  await store.page('cos_gmail_threads','thread_id=eq.thread1&limit=1');assert.equal(url.searchParams.get('order'),'thread_id.asc');
 });
+
+test('failed sign-in returns to Gmail settings instead of displaying raw JSON; logs omit secrets',async()=>{
+ const {createGmailHandler}=await import(base+'handler.mjs'),{APP_ORIGIN}=await import('../../supabase/functions/cos-google-calendar/google.mjs');
+ const logs=[],store=memory();store.insert=async()=>{throw Object.assign(Error('private-token-and-email'),{code:'STORE_TIMEOUT',status:0})};
+ const h=createGmailHandler({store,google:{},config:{},now:()=>NOW,logger:{error:v=>logs.push(v)}});
+ const r=await h(new Request(APP_ORIGIN+'/api/gmail/start',{method:'POST',headers:{Origin:APP_ORIGIN}}));
+ assert.equal(r.status,303);const target=new URL(r.headers.get('Location'));assert.equal(target.origin,APP_ORIGIN);assert.equal(target.searchParams.get('gmail'),'error');assert.equal(target.searchParams.get('reason'),'gmail_temporarily_unavailable');assert.equal(target.hash,'#/inbox');assert.match(r.headers.get('Set-Cookie'),/Max-Age=0/);
+ assert.deepEqual(JSON.parse(logs[0]),{component:'gmail',stage:'start',code:'STORE_TIMEOUT',status:0});assert.doesNotMatch(logs.join(''),/private-token-and-email/);
+});
+
+test('callback state-store failure is awaited and safely returns to the app',async()=>{
+ const {createGmailHandler}=await import(base+'handler.mjs');const store=memory();store.remove=async()=>{throw Object.assign(Error('private database detail'),{code:'42P01',status:404})};const logs=[];
+ const h=createGmailHandler({store,google:{},config:{},logger:{error:v=>logs.push(v)}});
+ const r=await h(new Request('https://app.test/gmail/callback?state=gmail.synthetic&code=secret-code',{headers:{Cookie:'__Host-cos-gmail-flow=synthetic-browser'}}));
+ assert.equal(r.status,303);assert.equal(new URL(r.headers.get('Location')).searchParams.get('reason'),'gmail_request_failed');assert.equal(JSON.parse(logs[0]).stage,'callback');assert.equal(JSON.parse(logs[0]).code,'42P01');assert.doesNotMatch(logs.join(''),/secret-code|synthetic-browser|private database detail/);
+});
+
+test('async labels failure is caught inside Gmail, retaining the actionable Google reason',async()=>{
+ const {createGmailHandler}=await import(base+'handler.mjs'),{APP_ORIGIN,sha256,encryptSecret}=await import('../../supabase/functions/cos-google-calendar/google.mjs');
+ const key=Buffer.alloc(32,7).toString('base64');const store=memory({cos_gmail_connection:[{id:'owner',google_sub:'owner',status:'connected',refresh_token_cipher:await encryptSecret('synthetic-refresh',key)}],cos_calendar_sessions:[{token_hash:await sha256('synthetic-session'),google_sub:'owner',expires_at:'2026-10-21T18:00:00Z'}]});
+ const logs=[],h=createGmailHandler({store,config:{tokenKey:key},google:{refresh:async()=>{throw {reason:'invalid_client',status:401}}},now:()=>NOW,logger:{error:v=>logs.push(v)}});
+ const r=await h(new Request(APP_ORIGIN+'/api/gmail/labels',{method:'POST',headers:{Origin:APP_ORIGIN,Cookie:'__Host-cos-calendar-session=synthetic-session'},body:'{}'}));
+ assert.equal(r.status,503);assert.deepEqual(await r.json(),{error:'invalid_client'});assert.equal(JSON.parse(logs[0]).stage,'labels');assert.ok(store.calls.some(c=>c[1]==='cos_gmail_release_lock'));
+});
+
+test('Gmail start and callback preserve browser binding and create an owner session',async()=>{
+ const {createGmailHandler}=await import(base+'handler.mjs'),{APP_ORIGIN}=await import('../../supabase/functions/cos-google-calendar/google.mjs');const store=memory();let auth;
+ const google={authorizationUrl:async args=>{auth=args;return 'https://accounts.google.com/synthetic'},exchangeCode:async args=>{assert.equal(args.verifier,auth.verifier);return {access_token:'synthetic-access',refresh_token:'synthetic-refresh'}},userInfo:async()=>({sub:'owner',email:'owner@example.com',email_verified:true})};
+ const h=createGmailHandler({store,google,config:{allowedEmail:'owner@example.com',tokenKey:Buffer.alloc(32,7).toString('base64')},now:()=>NOW});
+ const start=await h(new Request(APP_ORIGIN+'/api/gmail/start',{method:'POST',headers:{Origin:APP_ORIGIN}}));assert.equal(start.status,303);const browser=start.headers.get('Set-Cookie').split(';')[0];
+ const callback=await h(new Request(APP_ORIGIN+'/api/google-calendar/callback?state='+auth.state+'&code=synthetic-code',{headers:{Cookie:browser}}));assert.equal(callback.status,303);assert.equal(new URL(callback.headers.get('Location')).searchParams.get('gmail'),'connected');assert.match(callback.headers.get('Set-Cookie'),/__Host-cos-calendar-session=/);assert.equal(store.db.cos_gmail_connection[0].status,'connected');assert.equal(store.db.cos_calendar_sessions.length,1);assert.equal(store.db.cos_gmail_oauth_states.length,0);
+ const replay=await h(new Request(APP_ORIGIN+'/api/google-calendar/callback?state='+auth.state+'&code=synthetic-code',{headers:{Cookie:browser}}));assert.equal(new URL(replay.headers.get('Location')).searchParams.get('reason'),'invalid_state');
+});
