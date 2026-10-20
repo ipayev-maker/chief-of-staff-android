@@ -32,3 +32,8 @@ test('meeting review renders start time and editable duration as a meeting, not 
  session.editing=true;html=inbox.renderDetail(session);assert.match(html,/data-ci-field="meeting_date"/);assert.match(html,/data-ci-field="meeting_time"/);assert.match(html,/data-ci-field="duration_minutes"/);
  assert.equal(inbox.validateProposal(session.proposal), '');session.proposal.changes[0].duration_minutes=0;assert.match(inbox.validateProposal(session.proposal),/длительность/);
 });
+
+test('spoken clock hours retain exact time and reject unsupported number sequences',async()=>{
+  for(const [clock,time]of [['двенадцать','12:00'],['двенадцать часов','12:00'],['двадцать один','21:00'],['три часа дня','15:00'],['семь вечера','19:00'],['12 ночи','00:00']])assert.equal((await parse('Сегодня в '+clock+' встреча с Соколовой.'))?.meeting_time,time,clock);
+  for(const clock of ['двенадцать три часа','12 03','двенадцать тридцать','12 минут','двадцать пять'])assert.equal(await parse('Сегодня в '+clock+' встреча с Соколовой.'),null,clock);
+});

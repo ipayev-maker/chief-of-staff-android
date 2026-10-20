@@ -1,7 +1,7 @@
 // Date-only deadlines from exact quotes, never from a rewritten task title.
 // Node 24 / Deno 2; no dependencies or I/O. Legacy callers default to Moscow;
 // inbox callers pass the configured business timezone and original source time.
-import {withoutClocks} from './time-evidence.mjs';
+import {clockEvidence,withoutClocks} from './time-evidence.mjs';
 const DAY=86_400_000;
 const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
 const weekdays=new Map([['понедельник',1],['вторник',2],['среду',3],['среда',3],['четверг',4],['пятницу',5],['пятница',5],['субботу',6],['суббота',6],['воскресенье',0],['понедельника',1],['вторника',2],['среды',3],['четверга',4],['пятницы',5],['субботы',6],['воскресенья',0]]);
@@ -32,6 +32,10 @@ export function dateEvidence(row,text){
 // Explicit past years and relative past dates are deliberately preserved.
 export function exactDay(quote,refDate,{timeZone='Europe/Moscow'}={}){
   const text=clean(quote),today=baseDay(refDate,timeZone),year=Number(today.slice(0,4));let match,day;
+  const clocks=clockEvidence(text);
+  if(clocks.length===1&&clocks[0].index>0&&clocks[0].index+clocks[0].text.length===text.length){
+    return clocks[0].time?exactDay(text.slice(0,clocks[0].index).trim(),refDate,{timeZone}):{known:true,day:null};
+  }
   // Preserve the date portion of an explicit date + clock time. Times are not
   // invented as deadlines: the current ingestion schema stores a date only.
   if((match=text.match(/^(.+?)\s+(?:в|к|до)\s+([0-2]?\d)(?:[:.]([0-5]\d))?(?:\s*час(?:а|ов)?)?$/))){return Number(match[2])<=23?exactDay(match[1],refDate,{timeZone}):{known:true,day:null};}

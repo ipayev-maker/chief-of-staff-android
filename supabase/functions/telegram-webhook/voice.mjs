@@ -1,5 +1,6 @@
 // Telegram voice notes are stored privately before transcription. Native Web APIs
 // only: Deno 2 / Node 24. Never return Telegram file URLs or log upstream bodies.
+export const TRANSCRIPTION_MODEL='openai/gpt-4o-transcribe';
 export const VOICE_MAX_BYTES=10*1024*1024;
 export const VOICE_MAX_SECONDS=600;
 const bad=code=>{throw Object.assign(new Error(code),{safeCode:code})};
@@ -44,6 +45,7 @@ export function createVoiceAdapter({url,serviceKey,botToken,openRouterKey,fetchI
     try{return await response.json()}catch(error){if(['TimeoutError','AbortError'].includes(error?.name))transportFailure(stage,error);bad(stage+'_invalid_response')}
   }
   return {
+    model:TRANSCRIPTION_MODEL,
     async read({ownerId,communicationId}){
       const path=privatePath(ownerId,communicationId);
       const response=await request(base+'/storage/v1/object/authenticated/'+bucket+'/'+path,{headers:storageHeaders(),redirect:'error',signal:AbortSignal.timeout(12000)},'voice_storage_read');
@@ -68,7 +70,7 @@ export function createVoiceAdapter({url,serviceKey,botToken,openRouterKey,fetchI
       const bytes=await readBounded(response,'voice_storage_read');if(!validOgg(bytes))bad('voice_format');
       // Existing OpenRouter account; dedicated STT endpoint, no new SDK or key.
       // https://openrouter.ai/docs/api/api-reference/stt/create-transcription
-      const data=await jsonRequest('https://openrouter.ai/api/v1/audio/transcriptions',{model:'openai/gpt-4o-mini-transcribe',input_audio:{data:base64(bytes),format:'ogg'},language:'ru',response_format:'json'},{Authorization:'Bearer '+openRouterKey},'voice_transcription',35000);
+      const data=await jsonRequest('https://openrouter.ai/api/v1/audio/transcriptions',{model:TRANSCRIPTION_MODEL,input_audio:{data:base64(bytes),format:'ogg'},language:'ru',response_format:'json'},{Authorization:'Bearer '+openRouterKey},'voice_transcription',35000);
       const text=typeof data?.text==='string'?data.text.trim():'';if(!text)bad('voice_no_speech');if(text.length>20000)bad('voice_transcript_too_long');return text;
     }
   };

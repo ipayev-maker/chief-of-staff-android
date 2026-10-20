@@ -91,3 +91,32 @@ test('one direct message can atomically create both a task and a meeting',async(
   const f=await fixture(one+' '+two,{summary:'',questions:[],changes:[{kind:'meeting_create',text:'Встреча с Марией',evidence:one},...task(two).changes]});
   await f.run();assert.deepEqual(f.records.map(r=>r.kind),['meeting_create','task_create']);assert.equal(f.calls.filter(c=>c.name==='cos_inbox_apply').length,1);
 });
+
+test('short spoken appointment survives a model refusing an unfamiliar surname',async()=>{
+  for(const clock of ['12','двенадцать','двенадцать часов']){
+    const source='Сегодня в '+clock+' встреча с Соколовой.';
+    const f=await fixture(source,{summary:'Смысл фамилии неясен',questions:['Что означает Соколовой?'],changes:[]},{voice:true});
+    await f.run();assert.equal(f.item().status,'applied',clock);assert.equal(f.records.length,1);
+    assert.equal(f.records[0].after.starts_at,'2026-10-21T09:00:00.000Z');assert.match(f.records[0].after.title,/Соколовой/);
+    assert.deepEqual(f.item().proposal.questions,[]);assert.match(f.sent[0].body.text,/Встреча создана/);
+  }
+});
+test('malformed speech cannot invent meeting intent or minutes from a model summary',async()=>{
+  const source='Сегодня в двенадцать три часа соколовый.';
+  const f=await fixture(source,{summary:'Встреча сегодня в 12:03, соколовый — жаргон?',questions:['Что означает соколовый?'],changes:[]},{voice:true});
+  await f.run();assert.equal(f.records.length,0);assert.equal(f.item().status,'ready');
+  assert.doesNotMatch(f.sent[0].body.text,/12:03|жаргон|Что означает/);assert.match(f.sent[0].body.text,/расшифровку/);
+});
+test('spoken task work time is preserved without converting the task to a meeting',async()=>{
+  const source='Завтра в двенадцать подготовить смету.';
+  const f=await fixture(source,task(source,{date_kind:'work',date_text:'Завтра в двенадцать',date_status:'explicit'}),{voice:true});
+  await f.run();assert.equal(f.records.length,1);assert.equal(f.records[0].kind,'task_create');
+  assert.equal(f.records[0].after.planned_start_at,'2026-10-22T09:00:00.000Z');assert.equal(f.records[0].after.deadline,null);
+});
+test('fallback never turns negations, examples, forwards or malformed clocks into automatic meetings',async()=>{
+  for(const source of ['Сегодня в двенадцать три часа встреча с Соколовой.','Сегодня в 12 встреча с Соколовой отменена.','Например, сегодня в 12 встреча с Соколовой.','Не создавай сегодня в 12 встречу с Соколовой.','Сегодня в 12 встреча с Соколовой?','Сегодня в 12 встреча с Соколовой или с Анной.']){
+    const f=await fixture(source,{summary:'',questions:[],changes:[]},{voice:true});await f.run();assert.equal(f.records.length,0,source);
+  }
+  const f=await fixture('Сегодня в двенадцать встреча с Соколовой.',{summary:'',questions:[],changes:[]},{voice:true,meta:{forwarded:true,original_date:null}});
+  await f.run();assert.equal(f.records.length,0);
+});

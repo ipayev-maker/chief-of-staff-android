@@ -23,7 +23,7 @@ Deno.serve(async (request: Request) => {
       };
       const inbox = createCommunicationInbox({store,
         model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY')}),
-        voice: {save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
+        voice: {model: voiceAdapter.model, save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
       });
       handler = createNotesHandler({store, inbox});
     }
