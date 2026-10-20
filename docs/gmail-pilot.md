@@ -113,3 +113,11 @@ At most two failed invalid/unavailable analyses take slots in a later tick. The
 analysis attempt counter permits only one automatic retry, including results
 created before the counter existed. New captures keep the remaining slots.
 Model instructions request short, contiguous quotes rather than stitched passages.
+
+## 3.17.5 complete source passages
+
+When original quoted lines omit an intervening sentence, a bounded local matcher
+can restore the entire original passage within one email. All fragments must
+match in order, with no paraphrasing; gaps are capped at 500 characters and the
+whole passage at 2,000. Such suggestions are unchecked, have no newly inferred
+task date, and display the restored context for explicit owner review.

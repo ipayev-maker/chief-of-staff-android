@@ -16,13 +16,35 @@ export function exactMailQuote(source,quote){
   const result=source.slice(starts[at],ends[at+needle.length-1]);
   return result.length<=2000?result:null;
 }
+// If the model joins original lines but drops an intervening sentence, restore
+// the FULL passage. The caller must leave this suggestion unchecked: the missing
+// sentence could change its meaning. Never interpolate text or cross messages.
+export function completeMailQuote(source,quote){
+  if(typeof quote!=='string'||quote.length>2000)return null;
+  const parts=quote.split(/[\r\n]+/u).map(s=>s.trim()).filter(Boolean);
+  if(parts.length<2||parts.length>12||parts.some(s=>s.length<12))return null;
+  let first=-1,end=0;
+  for(const part of parts){
+    const literal=exactMailQuote(source.slice(end),part);if(!literal)return null;
+    const at=source.indexOf(literal,end);
+    if(first<0){if(source.indexOf(literal,at+literal.length)>=0)return null;first=at;}
+    else if(at-end>500)return null;
+    end=at+literal.length;
+    if(end-first>2000)return null;
+  }
+  return source.slice(first,end);
+}
 export function restoreMailEvidence(value,item){
   if(!value||typeof value!=='object'||Array.isArray(value))return value;
   const meta=item.source_meta||{},source=item.source_text||'';
   const message=meta.messages?.find(m=>m.id===value.source_message_id);
   const trigger=meta.messages?.find(m=>m.id===(value.trigger_message_id||value.source_message_id));
-  const result={...value};
-  if(message)result.evidence=exactMailQuote(source.slice(message.start,message.end),value.evidence)||value.evidence;
+  const result={...value,evidence_restored:false};
+  if(message){
+    const passage=source.slice(message.start,message.end),exact=exactMailQuote(passage,value.evidence);
+    const complete=exact?null:completeMailQuote(passage,value.evidence);
+    result.evidence=exact||complete||value.evidence;result.evidence_restored=!!complete;
+  }
   if(trigger)result.trigger_evidence=exactMailQuote(source.slice(trigger.start,trigger.end),value.trigger_evidence)||value.trigger_evidence;
   for(const key of ['date_text','duration_text','participant_mention']){
     if(typeof result.evidence==='string'&&typeof value[key]==='string')result[key]=exactMailQuote(result.evidence,value[key])||value[key];
@@ -41,5 +63,5 @@ export function mailEvidence(value,item,context){
   const groundedEmail=party&&addresses(source.slice(message.start,message.end)).includes(party)&&party!==meta.owner_email?party:null;
   const binding=groundedEmail?context.gmail_people?.find(p=>p.email===groundedEmail):null;
   const person=binding?context.participants.find(p=>p.id===binding.participant_id):null;
-  return {date:message.date,email:groundedEmail,person,message_id:message.id,trigger_id:trigger.id,proposed:value.agreement==='proposed'};
+  return {date:message.date,email:groundedEmail,person,message_id:message.id,trigger_id:trigger.id,proposed:value.agreement==='proposed',expanded:value.evidence_restored===true};
 }

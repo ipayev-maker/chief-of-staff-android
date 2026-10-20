@@ -108,7 +108,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
     const reference=correction?.created_at||mail?.date||sourceInstant(item);
     const appointment=old?null:sourceAppointment(value,{full,refDate:reference,timeZone,forwardedUnknown});
     const meetingKind=value.kind==='meeting_create'||!!appointment;
-    const dates=meetingKind?{deadline:null,deadline_time:null}:quotedDate({...value,...(mail?.proposed?{date_text:null,date_status:'none'}:{}),forwardedUnknown},full,reference,timeZone,questions);
+    const dates=meetingKind?{deadline:null,deadline_time:null}:quotedDate({...value,...(mail?.proposed||mail?.expanded?{date_text:null,date_status:'none'}:{}),forwardedUnknown},full,reference,timeZone,questions);
     const taskKind=!meetingKind&&value.kind.startsWith('task_');
     const workDate=taskKind&&value.date_kind==='work';
     const brief=context.briefs.find(b=>b.project_id===projectId);
@@ -129,6 +129,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
     }
     if(old?.deadline_at&&!dates.deadline){change.deadline_time=clockAt(old.deadline_at,timeZone).slice(11,16);}
     if(mail){change.source_message_id=mail.message_id;change.trigger_message_id=mail.trigger_id;change.participant_email=!old||!old.participant_id||old.participant_id===mail.person?.id?mail.email:null;}
+    if(mail?.expanded){change.selected=false;change.evidence_restored=true;}
     change.date_intent=!workDate&&!!dates.deadline;
     change.work_date_intent=workDate&&!!dates.deadline;
     if(!participantId&&participant.suggestion)change.participant_suggestion=participant.suggestion;
