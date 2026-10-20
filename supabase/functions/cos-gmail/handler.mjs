@@ -11,7 +11,7 @@ const readCookie=(r,name)=>(r.headers.get('Cookie')||'').split(';').map(v=>v.tri
 function redirect(result,reason,cookies=[]){const h=new Headers({...headers,Location:`${APP_ORIGIN}/?gmail=${result}${reason?'&reason='+encodeURIComponent(reason):''}#/inbox`});for(const c of cookies)h.append('Set-Cookie',c);return new Response(null,{status:303,headers:h})}
 const knownErrors=new Set(['invalid_grant','invalid_client','unauthorized_client','missing_required_scopes','accessNotConfigured','insufficientPermissions','rateLimitExceeded','userRateLimitExceeded','invalid_settings','scope_required','invalid_depth','thread_review_pending','gmail_network_error','mail_too_large','import_paused','analysis_consent_required']);
 const reason=e=>knownErrors.has(e?.reason||e?.message)?e.reason||e.message:['STORE_TIMEOUT','STORE_NETWORK'].includes(e?.code)?'gmail_temporarily_unavailable':'gmail_request_failed';
-export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,logger=console}){
+export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,recover,logger=console}){
   // Allowlisted metadata only: never log request URLs, cookies, tokens,
   // exception messages/stacks or provider/database response bodies.
   function report(error,stage){
@@ -39,7 +39,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
   async function sync(connection){
     if(!connection?.settings?.enabled)return json({ok:false,reason:'import_paused'});
     try{
-      const result=await syncMail({store,mail:await mail(connection),connection,now,analyze});
+      const result=await syncMail({store,mail:await mail(connection),connection,now,analyze,recover});
       await store.patch(C,'id=eq.owner',{last_sync_at:stamp(),last_error:null});return json(result);
     }catch(error){report(error,'sync');const code=reason(error);await store.patch(C,'id=eq.owner',{last_error:code,...(error.status===401||code==='invalid_grant'?{status:'needs_reconnect'}:{})});return json({ok:false,reason:code});}
   }
@@ -83,7 +83,13 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
       if(route==='status'&&request.method==='GET'){
         if(!await authorized(request,connection))return json({authenticated:false,configured:true});
         const threads=await store.page('cos_gmail_threads','select=thread_id,subject,inbox_id,pending,last_error,updated_at,context_days,message_limit,project_id&order=updated_at.desc&limit=51');
-        return json({authenticated:true,connection:connection?{email:connection.email,status:connection.status,last_sync_at:connection.last_sync_at,last_error:connection.last_error}:null,settings:connection?.settings||DEFAULT_SETTINGS,threads,pilot_full:threads.length>=50});
+        const ids=threads.map(t=>t.inbox_id).filter(Boolean);
+        const inbox=ids.length?await store.page('cos_communication_inbox','select=id,status&id=in.('+ids.join(',')+')&limit=51'):[];
+        const progress={found:threads.length,imported:ids.length,queued:threads.filter(t=>t.pending).length,
+          ready:inbox.filter(i=>['ready','deferred','applied'].includes(i.status)).length,
+          analyzing:inbox.filter(i=>['captured','processing'].includes(i.status)).length,
+          errors:inbox.filter(i=>i.status==='error').length,discovering:!!connection?.settings?.enabled&&connection?.cursor?.mode!=='history'};
+        return json({authenticated:true,progress,connection:connection?{email:connection.email,status:connection.status,last_sync_at:connection.last_sync_at,last_error:connection.last_error}:null,settings:connection?.settings||DEFAULT_SETTINGS,threads,pilot_full:threads.length>=50});
       }
       if(!['start','settings','labels','sync','disconnect','expand','project'].includes(route))return json({error:'not_found'},404);
       if(request.method!=='POST')return json({error:'method_not_allowed'},405);

@@ -1,4 +1,4 @@
-# Gmail pilot · 3.17.2
+# Gmail pilot · 3.17.3
 
 Gmail feeds the existing private communication inbox. It never sends, moves,
 deletes or marks email as read. Import does not change tasks; applying a review
@@ -61,7 +61,7 @@ Initial search is paginated across labels and address filters. A history anchor
 is taken before discovery. Incremental history pages persist candidate IDs before
 advancing their cursor. Candidates are scope-checked from headers in bounded
 batches. Expired history causes a new bounded 30-day discovery, not a full-mailbox
-download. One thread is imported per tick to bound execution and model latency.
+download. Up to five threads are imported per tick. Capture and analysis use separate durable queues; up to five captured items are analyzed concurrently. The cron runs every minute, with the existing connection lock preventing overlap. Status reports discovery, captured threads, pending imports, ready reviews, pending analysis and analysis errors.
 
 Pending reviews are preserved. New replies wait for the current review to be
 applied. Repeating an import of the same message set does not create a second
@@ -93,3 +93,16 @@ Later phases: automatic context retrieval before questions, calibrated semantic
 deduplication across channels, compact thread summaries with evidence retrieval,
 and measured retention policy. The pilot deliberately keeps human confirmation
 for every change to a task or project.
+
+
+## 3.17.3 import recovery
+
+Email evidence tolerates only whitespace differences (NBSP, CRLF, wrapping).
+Quotes are restored to exact contiguous source spans within the referenced email;
+changed words, cross-message joins and repeated triggers remain rejected. Existing
+invalid_analysis results are revalidated without another paid model call. Recovery
+checks AI consent and the inbox revision and never applies business changes.
+
+The inbox refreshes Gmail progress while idle and accepts only newer revisions,
+without replacing edits. Single long-message truncation is distinguished from
+omitted older messages, so it no longer offers irrelevant history expansion.

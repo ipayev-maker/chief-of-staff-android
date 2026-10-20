@@ -4,7 +4,7 @@ import {dateEvidence, exactDay, validDay} from '../telegram-webhook/date-evidenc
 import {emptyProjectBrief, validateProjectBriefDocument} from './project-brief.mjs';
 import {sourceAppointment} from './communication-schedule.mjs';
 import {participantFor,recoverPreparationTask} from './communication-intent.mjs';
-import {MAIL_INSTRUCTIONS,mailEvidence} from './communication-mail.mjs';
+import {MAIL_INSTRUCTIONS,mailEvidence,restoreMailEvidence} from './communication-mail.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REVISION=2147483646;
 const MODEL='anthropic/claude-sonnet-4.6';
@@ -84,6 +84,7 @@ function quotedDate(raw,full,refDate,zone,questions){
 export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone='Europe/Moscow',uuid=()=>crypto.randomUUID()}){
   if(!object(raw)||!Array.isArray(raw.changes)||raw.changes.length>30||!text(raw.summary??'',2000))fail(503,'invalid_analysis');
   if(item.source_meta?.type!=='gmail')raw=recoverPreparationTask(raw,{source:item.transcript||item.source_text||'',corrections});
+  else raw={...raw,changes:raw.changes.map(value=>restoreMailEvidence(value,item))};
   const full=sourceText(item,corrections),questions=Array.isArray(raw.questions)?raw.questions.filter(q=>text(q,500,false)).slice(0,20):[];
   const changes=[];const usedTasks=new Set();
   for(const value of raw.changes){
@@ -318,5 +319,15 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     return {...result,item:safeItem(result.item)};
   }
   async function audio(id){const {item}=await get(id);if(!item.source_meta?.audio_path||!voice?.read)fail(404,'audio_not_found');try{return await voice.read({communicationId:id})}catch{fail(503,'voice_unavailable')}}
-  return {get,list,analyze,process:item=>analyze(item.id,{revision:item.revision}),apply,defer,audio};
+  async function recover(id){
+    const {item}=await get(id),analysis=item.proposal?.analysis;
+    if(item.source_meta?.type!=='gmail'||item.source_meta.superseded||item.status!=='error'||item.error_code!=='invalid_analysis'||!analysis?.result)return null;
+    const consent=(await store.page('cos_gmail_connection','select=settings&id=eq.owner&limit=1'))[0];
+    if(consent?.settings?.ai_consent!==true)return null;
+    const context=await contextFor(store);context.gmail_people=await store.list('cos_gmail_people','select=email,participant_id&order=email.asc');
+    let proposal;try{proposal=normalizeInboxProposal(analysis.result,{item,context,corrections:item.proposal?.corrections||[],timeZone:await zone(),uuid})}catch{return null;}
+    proposal.analysis={...analysis,status:'completed',recovered:true};delete proposal.analysis.result;
+    return {item:await update(item,{status:'ready',error_code:null,proposal})};
+  }
+  return {get,list,analyze,recover,process:item=>analyze(item.id,{revision:item.revision}),apply,defer,audio};
 }

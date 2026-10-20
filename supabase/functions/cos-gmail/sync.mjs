@@ -4,15 +4,16 @@ const THREADS='cos_gmail_threads',CONNECTION='cos_gmail_connection';
 export async function discover({store,mail,connection,now=()=>new Date()}){
   const config=connection.settings;
   let cursor=connection.cursor||{},queued=0;
+  const known=new Map((await store.page(THREADS,'select=thread_id,pending&limit=51')).map(row=>[row.thread_id,row]));
   const enqueue=async id=>{
     if(!validId(id))return;
-    const old=(await store.page(THREADS,eq('thread_id',id)+'&limit=1'))[0];
+    const old=known.get(id);
     if(old){if(!old.pending)await store.patch(THREADS,eq('thread_id',id),{pending:true});}
     else{
       // Pilot is capped server-side; never silently ingest an unlimited mailbox.
-      const all=await store.page(THREADS,'select=thread_id&limit=51');
-      if(all.length>=config.pilot_limit)return;
+      if(known.size>=config.pilot_limit)return;
       await store.insert(THREADS,{thread_id:id,pending:true});
+      known.set(id,{thread_id:id,pending:true});
     }
     queued++;
   };
@@ -87,22 +88,34 @@ export async function importThread({store,mail,connection,thread,now=()=>new Dat
   const result=await store.rpc('cos_gmail_capture',{p_thread_id:thread.thread_id,p_text:captured.source,p_meta:captured.meta,p_subject:captured.subject,p_message_ids:ids,p_history_id:metadata.historyId||null});
   return {imported:!result.duplicate,item:result.item};
 }
-export async function syncMail({store,mail,connection,now=()=>new Date(),analyze}){
+export async function syncMail({store,mail,connection,now=()=>new Date(),analyze,recover}){
   if(connection?.status!=='connected'||!connection.settings?.enabled)return {ok:false,reason:'import_paused'};
   const found=await discover({store,mail,connection,now});
-  // One thread per invocation bounds Google requests and model latency. Cron
-  // continues the durable queue; manual sync can safely be repeated.
-  const queue=await store.page(THREADS,'pending=eq.true&order=updated_at.asc,thread_id.asc&limit=1');
-  let imported=0,waiting=0;
-  for(const thread of queue){
+  // Capture and analysis have separate durable queues. A failed model response
+  // cannot block downloading other threads or lose a captured source.
+  const queue=await store.page(THREADS,'pending=eq.true&order=updated_at.asc,thread_id.asc&limit=5');
+  let imported=0,waiting=0,analyzed=0,analysis_errors=0,recovered=0;
+  const imports=await Promise.allSettled(queue.map(async thread=>{
     try{
       const result=await importThread({store,mail,connection,thread,now});
       imported+=result.imported?1:0;waiting+=result.waiting?1:0;
       await store.patch(THREADS,eq('thread_id',thread.thread_id),{updated_at:now().toISOString(),last_error:null});
-      if(result.item&&connection.settings.ai_consent&&analyze)await analyze(result.item).catch(()=>{});
     }catch(error){
       await store.patch(THREADS,eq('thread_id',thread.thread_id),{updated_at:now().toISOString(),last_error:'thread_import_failed'});throw error;
     }
+  }));
+  if(connection.settings.ai_consent){
+    if(recover){
+      const errors=await store.page('cos_communication_inbox','select=id&source_meta->>type=eq.gmail&status=eq.error&error_code=eq.invalid_analysis&order=updated_at.asc&limit=5');
+      const repaired=await Promise.allSettled(errors.map(item=>recover(item)));
+      recovered=repaired.filter(r=>r.status==='fulfilled'&&r.value?.item?.status==='ready').length;
+    }
+    if(analyze){
+      const captured=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail&status=eq.captured&order=created_at.asc&limit=5');
+      const results=await Promise.allSettled(captured.map(item=>analyze(item)));
+      for(const result of results){if(result.status==='fulfilled'&&result.value?.item?.status==='ready')analyzed++;else analysis_errors++;}
+    }
   }
-  return {ok:true,queued:found.queued,imported,waiting};
+  const failed=imports.find(r=>r.status==='rejected');if(failed)throw failed.reason;
+  return {ok:true,queued:found.queued,imported,waiting,analyzed,analysis_errors,recovered};
 }

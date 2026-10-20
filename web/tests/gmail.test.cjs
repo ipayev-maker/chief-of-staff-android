@@ -167,3 +167,59 @@ test('mailbox subject alone is not a valid shared owner session when a calendar 
  store.db.cos_calendar_sessions.push({token_hash:await sha256('wrong-sub-session'),google_sub:'work-sub',expires_at:'2026-10-21T18:00:00Z'});
  const result=await h(new Request(APP_ORIGIN+'/api/gmail/status',{headers:{Cookie:'__Host-cos-calendar-session=wrong-sub-session'}}));assert.equal((await result.json()).authenticated,false);
 });
+
+test('mail quotes restore exact whitespace without accepting changed words or cross-message joins',async()=>{
+ const {exactMailQuote,restoreMailEvidence,mailEvidence}=await import('../../supabase/functions/cos-notes/communication-mail.mjs');
+ const source='📦 Заказ\u00a0нужно\r\nсобрать.\nСрок:\tчетверг.';
+ assert.equal(exactMailQuote(source,'Заказ нужно собрать.'),'Заказ\u00a0нужно\r\nсобрать.');
+ assert.equal(exactMailQuote(source,'📦 Заказ нужно собрать.'),'📦 Заказ\u00a0нужно\r\nсобрать.');
+ assert.equal(exactMailQuote(source,'Заказ можно собрать.'),null);
+ assert.equal(exactMailQuote(source,'Заказ нужно собрать. Срок: пятница.'),null);
+ const item={source_text:source,source_meta:{type:'gmail',messages:[{id:'a',start:0,end:source.length,date:NOW.toISOString()}],new_message_ids:['a']}};
+ const value=restoreMailEvidence({source_message_id:'a',evidence:'Заказ нужно собрать.',trigger_evidence:'Срок: четверг.'},item);
+ assert.equal(mailEvidence(value,item,{}).message_id,'a');
+ const other={source_text:'Собрать заказ. Прислать образец.',source_meta:{type:'gmail',messages:[{id:'a',start:0,end:14},{id:'b',start:14,end:31}],new_message_ids:['b']}};
+ const joined=restoreMailEvidence({source_message_id:'a',trigger_message_id:'b',evidence:'Собрать заказ. Прислать образец.',trigger_evidence:'Прислать образец.'},other);
+ assert.throws(()=>mailEvidence(joined,other,{}),/invalid_mail_evidence/);
+});
+
+test('normalizer retains all supported changes from HTML email whitespace',async()=>{
+ const m=await import(base+'mail.mjs'),{normalizeInboxProposal}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');
+ const s=m.snapshot([message('a',NOW,'Пришлю\u00a0образец\r\nзавтра.')],{threadId:'thread1',selection:{total:1,omitted:0},ownerEmail:'owner@example.com'});
+ const p=normalizeInboxProposal({summary:'Образец',changes:[{kind:'task_create',text:'Получить образец',source_message_id:'a',evidence:'Пришлю образец завтра.',trigger_evidence:'Пришлю образец завтра.',date_text:'завтра',date_status:'explicit'}]},{item:{source_text:s.source,source_meta:s.meta,created_at:NOW.toISOString()},context:{projects:[],participants:[],tasks:[],briefs:[]}});
+ assert.equal(p.changes.length,1);assert.equal(p.changes[0].deadline,'2026-10-21');assert.ok(s.source.includes(p.changes[0].evidence));
+});
+
+test('recover cached Gmail analysis without another model request and respect consent and revision',async()=>{
+ const {createCommunicationInbox}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');
+ const id='11111111-1111-4111-8111-111111111111',source='Пришлю\u00a0образец завтра.';
+ const original={id,revision:5,status:'error',error_code:'invalid_analysis',source_text:source,created_at:NOW.toISOString(),source_meta:{type:'gmail',messages:[{id:'a',start:0,end:source.length,date:NOW.toISOString()}],new_message_ids:['a']},proposal:{corrections:[],analysis:{usage:{cost:0.02},result:{summary:'Образец',changes:[{kind:'task_create',text:'Получить образец',source_message_id:'a',evidence:'Пришлю образец завтра.',trigger_evidence:'Пришлю образец завтра.'}]}}}};
+ const store=memory({cos_communication_inbox:[original],cos_gmail_connection:[{id:'owner',settings:{ai_consent:true}}]});
+ store.rpc=async(name,args)=>{assert.equal(name,'cos_inbox_update');const row=store.db.cos_communication_inbox[0];assert.equal(args.p_revision,row.revision);Object.assign(row,args.p_patch);row.revision++;return {item:clone(row)}};
+ let modelCalls=0;const inbox=createCommunicationInbox({store,model:async()=>{modelCalls++;throw Error('unexpected')},timeZone:'Europe/Moscow'});
+ const result=await inbox.recover(id);assert.equal(result.item.status,'ready');assert.equal(result.item.proposal.changes.length,1);assert.equal(result.item.proposal.analysis.recovered,true);assert.equal(modelCalls,0);
+ assert.equal(await inbox.recover(id),null);
+ store.db.cos_communication_inbox=[clone(original)];store.db.cos_gmail_connection[0].settings.ai_consent=false;
+ assert.equal(await inbox.recover(id),null);assert.equal(store.db.cos_communication_inbox[0].revision,5);
+});
+
+test('sync captures five queued threads despite one analysis error, and drains saved sources separately',async()=>{
+ const {syncMail}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');
+ const connection={id:'owner',status:'connected',email:'owner@example.com',settings:{...m.DEFAULT_SETTINGS,label_ids:['Label_work'],enabled:true,ai_consent:true},cursor:{mode:'history',history_id:'1'}};
+ const threads=Array.from({length:7},(_,i)=>({thread_id:'thread'+i,pending:true,context_days:90,message_limit:10}));
+ const store=memory({cos_gmail_connection:[connection],cos_gmail_threads:threads,cos_communication_inbox:[]});
+ const originalPage=store.page.bind(store);store.page=async(t,q)=>originalPage(t,q.replace('&source_meta->>type=eq.gmail',''));
+ store.rpc=async(name,args)=>{assert.equal(name,'cos_gmail_capture');const item={id:args.p_thread_id,revision:1,status:'captured'};store.db.cos_communication_inbox.push(item);Object.assign(store.db.cos_gmail_threads.find(t=>t.thread_id===args.p_thread_id),{pending:false,inbox_id:item.id,message_ids:args.p_message_ids});return {item,duplicate:false}};
+ const mail={get:async()=>({historyId:'2',history:[]}),thread:async id=>({messages:[{...message(id,NOW),threadId:id}]}),message:async id=>({...message(id,NOW),threadId:id})};
+ let calls=0;const first=await syncMail({store,mail,connection,now:()=>NOW,analyze:async item=>{calls++;const row=store.db.cos_communication_inbox.find(i=>i.id===item.id);row.status=calls===1?'error':'ready';return {item:row}}});
+ assert.equal(first.imported,5);assert.equal(first.analyzed,4);assert.equal(first.analysis_errors,1);assert.equal(store.db.cos_gmail_threads.filter(t=>t.pending).length,2);assert.equal(calls,5);
+ const second=await syncMail({store,mail,connection,now:()=>NOW,analyze:async item=>{store.db.cos_communication_inbox.find(i=>i.id===item.id).status='ready';return {item:{status:'ready'}}}});
+ assert.equal(second.imported,2);assert.equal(second.analyzed,2);assert.equal(store.db.cos_gmail_threads.filter(t=>t.pending).length,0);
+});
+
+test('Gmail progress distinguishes discovery, import and analysis; truncated text does not offer older messages',()=>{
+ const ui=require('../gmail.js'),inbox=require('../inbox.js');
+ assert.match(ui.progressText({progress:{found:40,imported:5,ready:3,queued:35,analyzing:1,errors:1,discovering:true}}),/Найдено цепочек: 40.*Загружено: 5.*Ошибок разбора: 1/);
+ const item={id:'11111111-1111-4111-8111-111111111111',revision:1,status:'captured',source_text:'Исходник',source_meta:{type:'gmail',subject:'Заказ',messages:[{id:'a'}],total_messages:1,partial:true,omitted_messages:0,context_days:90,message_limit:10}};
+ const html=inbox.renderDetail(inbox.createSession(item));assert.match(html,/Длинный текст письма сокращён/);assert.doesNotMatch(html,/Добавить 10 писем/);
+});
