@@ -236,3 +236,16 @@ test('automatic retry is bounded to two slots and skips second failures, preserv
  calls.length=0;await syncMail({store,mail:{get:async()=>({historyId:'2',history:[]})},connection,analyze,now:()=>NOW});
  assert.deepEqual(calls,['error2','error3','new3']);
 });
+
+test('omitted sentences are restored verbatim but force explicit review and no inferred task date',async()=>{
+ const m=await import(base+'mail.mjs'),{completeMailQuote}=await import('../../supabase/functions/cos-notes/communication-mail.mjs'),{normalizeInboxProposal}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');
+ const body='Пришлю образец завтра.\nПока это не согласовано.\nПодготовьте размеры оборудования.';
+ const quote='Пришлю образец завтра.\nПодготовьте размеры оборудования.';
+ assert.equal(completeMailQuote(body,quote),body);
+ assert.equal(completeMailQuote(body,'Пришлю образец сегодня.\nПодготовьте размеры оборудования.'),null);
+ assert.equal(completeMailQuote(body,'Подготовьте размеры оборудования.\nПришлю образец завтра.'),null);
+ const snap=m.snapshot([message('a',NOW,body)],{threadId:'thread1',selection:{total:1,omitted:0},ownerEmail:'owner@example.com'});
+ const proposal=normalizeInboxProposal({summary:'',changes:[{kind:'task_create',text:'Получить образец',evidence:quote,source_message_id:'a',trigger_evidence:'Пришлю образец завтра.',date_text:'завтра',date_status:'explicit'}]},{item:{source_text:snap.source,source_meta:snap.meta,created_at:NOW.toISOString()},context:{projects:[],participants:[],tasks:[],briefs:[]}});
+ const change=proposal.changes[0];assert.equal(change.evidence,body);assert.equal(change.selected,false);assert.equal(change.evidence_restored,true);assert.equal(change.deadline,null);
+ const inbox=require('../inbox.js');const html=inbox.renderDetail(inbox.createSession({id:'11111111-1111-4111-8111-111111111111',status:'ready',revision:1,proposal}));assert.match(html,/В цитату возвращены пропущенные фразы/);
+});
