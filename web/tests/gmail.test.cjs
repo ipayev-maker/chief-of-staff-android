@@ -249,3 +249,21 @@ test('omitted sentences are restored verbatim but force explicit review and no i
  const change=proposal.changes[0];assert.equal(change.evidence,body);assert.equal(change.selected,false);assert.equal(change.evidence_restored,true);assert.equal(change.deadline,null);
  const inbox=require('../inbox.js');const html=inbox.renderDetail(inbox.createSession({id:'11111111-1111-4111-8111-111111111111',status:'ready',revision:1,proposal}));assert.match(html,/В цитату возвращены пропущенные фразы/);
 });
+
+test('explicit ellipses restore the omitted original passage under the same review limits',async()=>{
+ const {completeMailQuote}=await import('../../supabase/functions/cos-notes/communication-mail.mjs');
+ const body='Товар в наличии\r\nк оплате 838 руб\r\nАдрес получения указан в заказе.\r\nСрок хранения заказов - 3 рабочих дня.';
+ assert.equal(completeMailQuote(body,'Товар в наличии\nк оплате 838 руб\n…Срок хранения заказов - 3 рабочих дня.'),body);
+ assert.equal(completeMailQuote(body,'Товар в наличии ... Срок хранения заказов - 3 рабочих дня.'),body);
+ assert.equal(completeMailQuote(body,'Товар в наличии ... Срок хранения заказов - 5 рабочих дней.'),null);
+ assert.equal(completeMailQuote('Товар в наличии '+'.'.repeat(2001)+' Срок хранения заказов - 3 рабочих дня.','Товар в наличии ... Срок хранения заказов - 3 рабочих дня.'),null);
+});
+
+test('quote markers and omissions are restored in evidence and trigger only as unchecked full source passages',async()=>{
+ const {restoreMailEvidence,mailEvidence}=await import('../../supabase/functions/cos-notes/communication-mail.mjs');
+ const source='> Андрей, оплаты от вас не было.\n> Мы не успеем сегодня переместить заказ.';
+ const item={source_text:source,source_meta:{type:'gmail',messages:[{id:'a',start:0,end:source.length}],new_message_ids:['a']}};
+ const quote='Андрей, оплаты от вас не было. Мы не успеем сегодня переместить заказ.';
+ const result=restoreMailEvidence({source_message_id:'a',evidence:quote,trigger_evidence:quote},item);
+ assert.equal(result.evidence,source.slice(2));assert.equal(result.trigger_evidence,source.slice(2));assert.equal(mailEvidence(result,item,{}).expanded,true);
+});

@@ -116,8 +116,7 @@ Model instructions request short, contiguous quotes rather than stitched passage
 
 ## 3.17.5 complete source passages
 
-When original quoted lines omit an intervening sentence, a bounded local matcher
+When original quoted lines or explicit ellipses omit an intervening sentence, a bounded local matcher
 can restore the entire original passage within one email. All fragments must
-match in order, with no paraphrasing; gaps are capped at 500 characters and the
-whole passage at 2,000. Such suggestions are unchecked, have no newly inferred
+match in order, with no paraphrasing; the entire restored passage is capped at 2,000 characters. Such suggestions are unchecked, have no newly inferred
 task date, and display the restored context for explicit owner review.

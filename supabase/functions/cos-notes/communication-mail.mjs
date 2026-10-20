@@ -21,14 +21,14 @@ export function exactMailQuote(source,quote){
 // sentence could change its meaning. Never interpolate text or cross messages.
 export function completeMailQuote(source,quote){
   if(typeof quote!=='string'||quote.length>2000)return null;
-  const parts=quote.split(/[\r\n]+/u).map(s=>s.trim()).filter(Boolean);
+  let parts=quote.split(/(?:[\r\n]+|…|\.{3,})+/u).map(s=>s.trim()).filter(Boolean);
+  if(parts.length===1)parts=quote.split(/(?<=[.!?])\s+(?=\p{Lu})/u).map(s=>s.trim()).filter(Boolean);
   if(parts.length<2||parts.length>12||parts.some(s=>s.length<12))return null;
   let first=-1,end=0;
   for(const part of parts){
     const literal=exactMailQuote(source.slice(end),part);if(!literal)return null;
     const at=source.indexOf(literal,end);
     if(first<0){if(source.indexOf(literal,at+literal.length)>=0)return null;first=at;}
-    else if(at-end>500)return null;
     end=at+literal.length;
     if(end-first>2000)return null;
   }
@@ -45,7 +45,11 @@ export function restoreMailEvidence(value,item){
     const complete=exact?null:completeMailQuote(passage,value.evidence);
     result.evidence=exact||complete||value.evidence;result.evidence_restored=!!complete;
   }
-  if(trigger)result.trigger_evidence=exactMailQuote(source.slice(trigger.start,trigger.end),value.trigger_evidence)||value.trigger_evidence;
+  if(trigger){
+    const passage=source.slice(trigger.start,trigger.end),exact=exactMailQuote(passage,value.trigger_evidence);
+    const complete=exact?null:completeMailQuote(passage,value.trigger_evidence);
+    result.trigger_evidence=exact||complete||value.trigger_evidence;result.evidence_restored ||= !!complete;
+  }
   for(const key of ['date_text','duration_text','participant_mention']){
     if(typeof result.evidence==='string'&&typeof value[key]==='string')result[key]=exactMailQuote(result.evidence,value[key])||value[key];
   }
