@@ -24,15 +24,15 @@ test('existing generated mail is recognized; normal tasks and arbitrary links ar
   const {app}=fixture();assert.equal(app.mailReviewSource(review('x')),source);
   for(const task of [{description:'Разобрать письмо: Образец'},review('x',{description:'Согласовать образец'}),review('x',{details:'Источник: https://evil.test/#/inbox/'+source})])assert.equal(app.mailReviewSource(task),null);
 });
-test('unreviewed mail is above project filters, newest first, and not duplicated in ordinary tasks',()=>{
+test('mail review moves to its own tab and placeholders stay out of ordinary tasks',()=>{
   const {app,element}=fixture();app.S.areaFilter='work';
   app.S.tasks=[review('old',{created_at:'2026-10-20T10:00:00Z'}),review('new'),review('ignored',{status:'cancelled'}),review('done',{status:'completed'}),{id:'normal',description:'Позвонить',status:'open',area_key:'work'}];
   const lists=app.mailReviewLists(app.S.tasks);assert.deepEqual(Array.from(lists.pending,t=>t.id),['new','old']);assert.deepEqual(Array.from(lists.ignored,t=>t.id),['ignored']);
   app.globalTasksPage();const main=element('#main').innerHTML,top=element('#mailReviewGroups').innerHTML,normal=element('#globalTaskGroups').innerHTML;
   assert.ok(main.indexOf('id="mailReviewGroups"')<main.indexOf('class="filters'));
-  assert.match(top,/Неразобранные/);assert.ok(top.indexOf('data-review-open="new"')<top.indexOf('data-review-open="old"'));
+  assert.match(top,/href="#\/mail"/);assert.match(top,/предложения Никодима/);
   assert.doesNotMatch(top,/data-review-open="ignored"/);assert.match(normal,/Позвонить/);assert.doesNotMatch(normal,/Разобрать письмо/);
-  app.S.taskShowCompleted=true;app.S.taskShowIgnored=true;app.globalTasksPage();assert.match(element('#mailReviewGroups').innerHTML,/data-review-open="ignored"/);assert.doesNotMatch(element('#globalTaskGroups').innerHTML,/data-global-task="ignored"/);
+  app.S.taskShowCompleted=true;app.S.taskShowIgnored=true;app.globalTasksPage();assert.doesNotMatch(element('#mailReviewGroups').innerHTML,/data-review-open/);assert.doesNotMatch(element('#globalTaskGroups').innerHTML,/data-global-task="ignored"/);
 });
 test('search filters pending and ignored mail; subject HTML is escaped and source opens original',()=>{
   const {app}=fixture();const task=review('x',{description:'Разобрать письмо: <img src=x onerror=alert(1)>'});

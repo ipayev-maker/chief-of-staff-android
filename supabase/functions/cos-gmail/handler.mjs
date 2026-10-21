@@ -2,6 +2,7 @@ import {PUBLIC_ORIGIN,allowedOrigin,validChallenge,beginTransfer,issueTransfer} 
 import {APP_ORIGIN,randomToken,sha256,encryptSecret,decryptSecret,safeEqual} from '../cos-google-calendar/google.mjs';
 import {DEFAULT_SETTINGS,settings,validId} from './mail.mjs';
 import {createMailClient} from './client.mjs';
+import {createMailReader} from './reader.mjs';
 import {syncMail} from './sync.mjs';
 const C='cos_gmail_connection',STATES='cos_gmail_oauth_states',FLOW='__Host-cos-gmail-flow',SESSION='__Host-cos-calendar-session';
 const eq=(k,v)=>k+'=eq.'+encodeURIComponent(v);
@@ -103,6 +104,13 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         return await locked(async()=>sync(await current()));
       }
       const connection=await current();
+      if(['letters','thread','message'].includes(route)&&request.method==='GET'){
+        if(!await authorized(request,connection))return json({error:'unauthorized'},401);
+        if(!connection)return json({error:'not_connected'},409);
+        const reader=createMailReader({store,mail});
+        try{return json(route==='letters'?await reader.list(Number(url.searchParams.get('offset')||0)):route==='thread'?await reader.thread(url.searchParams.get('id'),connection):await reader.message(url.searchParams.get('thread'),url.searchParams.get('id'),connection));}
+        catch(error){const code=['invalid_thread','invalid_message','invalid_pagination','thread_unavailable','mail_too_large'].includes(error.reason)?error.reason:reason(error);return json({error:code},[400,404,413].includes(error.status)?error.status:503);}
+      }
       if(route==='status'&&request.method==='GET'){
         if(!await authorized(request,connection))return json({authenticated:false,configured:true});
         const threads=await store.list('cos_gmail_threads','select=thread_id,subject,inbox_id,pending,last_error,updated_at,context_days,message_limit,project_id&order=updated_at.desc');

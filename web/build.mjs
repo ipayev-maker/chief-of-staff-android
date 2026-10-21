@@ -14,7 +14,7 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
-for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css', 'gmail.js', 'gmail.css']) {
+for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css', 'gmail.js', 'gmail.css', 'mail-reader.js', 'mail-reader.css']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
 // Same-origin PDF renderer and worker; private documents never go to an external viewer.
@@ -28,6 +28,11 @@ for (const name of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) await cp(new URL
 await cp(new URL('LICENSE', pdfSource), new URL('LICENSE', pdfTarget));
 // A real iframe viewport for manual responsive checks, never emitted in production.
 if (process.env.VERCEL_ENV === 'preview') {
+  const readerTest=await readFile(new URL('./tests/mail-reader-browser.cjs',import.meta.url),'utf8');
+  const readerFixture=readerTest.match(/const fixture=`([\s\S]*?)`;/)[1];
+  await writeFile(new URL('./dist/_mail-reader-preview.html',import.meta.url),html.replace(/\bboot\(\);(?=\s*<\/script>)/,()=>readerFixture));
+  const readerLayout=(await readFile(new URL('./tests/responsive-preview.html',import.meta.url),'utf8')).replace('src="/"','src="/_mail-reader-preview.html#/mail"');
+  await writeFile(new URL('./dist/_mail-reader-layout.html',import.meta.url),readerLayout);
   await writeFile(new URL('./dist/_gmail-preview.html',import.meta.url),await readFile(new URL('./tests/gmail-preview.html',import.meta.url)));
   const gmailLayout=(await readFile(new URL('./tests/responsive-preview.html',import.meta.url),'utf8')).replace('src="/"','src="/_gmail-preview.html"');
   await writeFile(new URL('./dist/_gmail-layout.html',import.meta.url),gmailLayout);
@@ -57,6 +62,8 @@ if (process.env.VERCEL_ENV === 'preview') {
   const mediaLayout = (await readFile(new URL('./tests/responsive-preview.html', import.meta.url), 'utf8')).replace('src="/"', 'src="/_media-preview.html"');
   await writeFile(new URL('./dist/_media-layout.html', import.meta.url), mediaLayout);
 } else {
+  await rm(new URL('./dist/_mail-reader-preview.html',import.meta.url),{force:true});
+  await rm(new URL('./dist/_mail-reader-layout.html',import.meta.url),{force:true});
   await rm(new URL('./dist/_gmail-preview.html',import.meta.url),{force:true});
   await rm(new URL('./dist/_gmail-layout.html',import.meta.url),{force:true});
   await rm(new URL('./dist/_design-preview.html', import.meta.url), { force: true });
