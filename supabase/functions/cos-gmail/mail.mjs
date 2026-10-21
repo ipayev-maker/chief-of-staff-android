@@ -77,7 +77,7 @@ export function snapshot(messages,{threadId,selection,ownerEmail,processedIds=[]
   }
   for(const {message,date,rendered,truncated} of retained){
     const start=source.length;source+=rendered;
-    meta.messages.push({id:message.id,date,from:header(message,'from').slice(0,300),email:addresses(header(message,'from'))[0]||null,start,end:source.length,truncated});
+    meta.messages.push({id:message.id,date,from:header(message,'from').slice(0,300),email:addresses(header(message,'from'))[0]||null,to_emails:addresses(header(message,'to')),start,end:source.length,truncated});
     if(!processedIds.includes(message.id))meta.new_message_ids.push(message.id);
   }
   meta.partial ||= meta.omitted_messages>0;

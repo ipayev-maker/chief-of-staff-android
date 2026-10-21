@@ -59,7 +59,7 @@ function resource(url) {
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
   if (path === 'inbox') return {kind: 'inboxList', methods: ['GET']};
-  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|audio|cancel))?$/.exec(path);
+  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel))?$/.exec(path);
   if (inbox) return {kind: 'inbox', id: resourceUuid(inbox[1]), action: inbox[2] || 'get', methods: [!inbox[2] || inbox[2] === 'audio' ? 'GET' : 'POST']};
   if (path === 'participants') return {kind: 'participants', methods: ['POST']};
   let parts = /^participants\/([^/]+)$/.exec(path);
@@ -272,11 +272,11 @@ export function createNotesHandler({store, now = () => new Date(), inbox = creat
       if (method !== 'GET' && !allowedOrigin(request.headers.get('Origin'))) fail(403, 'invalid_origin');
       await authenticate(request);
       if (route.kind === 'inboxList') {
-        const allowed = new Set(['status', 'limit', 'offset']);
+        const allowed = new Set(['status', 'limit', 'offset', 'scope']);
         if ([...url.searchParams.keys()].some(key => !allowed.has(key) || url.searchParams.getAll(key).length !== 1)) fail(400, 'invalid_request');
         const limit = url.searchParams.get('limit') || '50', offset = url.searchParams.get('offset') || '0';
         if (!/^[1-9]\d*$/.test(limit) || !/^\d+$/.test(offset)) fail(400, 'invalid_pagination');
-        return json(await inbox.list({status: url.searchParams.get('status') || 'pending', limit: Number(limit), offset: Number(offset)}));
+        return json(await inbox.list({status: url.searchParams.get('status') || 'pending', scope: url.searchParams.get('scope') || 'inbox', limit: Number(limit), offset: Number(offset)}));
       }
       if (route.kind === 'inbox') {
         if (url.search) fail(400, 'invalid_request');
