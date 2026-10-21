@@ -321,3 +321,11 @@ test('Gmail login on Nikodim also completes through the existing callback and pe
  assert.equal(finish.headers.get('Location'),origin+'/?gmail=connected#/inbox');assert.equal(store.db.cos_calendar_sessions[0].google_sub,'personal');assert.equal(store.db.cos_auth_transfers.length,0);
  const Cookie=finish.headers.getSetCookie().find(c=>c.startsWith('__Host-cos-calendar-session=')).split(';')[0];assert.equal((await (await h(new Request(origin+'/api/gmail/status',{headers:{Cookie}}))).json()).authenticated,true);
 });
+
+test('provider diagnostics are read-only, redact identifiers, and require the cron credential',async()=>{
+ const {modelHealth}=await import(base+'health.mjs'),{createGmailHandler}=await import(base+'handler.mjs');let called=0;
+ const health=()=>modelHealth({key:'synthetic-key',fetchImpl:async(url,init)=>{called++;assert.equal(init.method,undefined);if(url.endsWith('/credits'))return Response.json({data:{total_credits:5,total_usage:4.99}});assert.equal(url,'https://openrouter.ai/api/v1/key');return Response.json({data:{limit:2,limit_remaining:0,usage:2,label:'secret-label',creator_user_id:'private',is_free_tier:false}})}});
+ const h=createGmailHandler({store:memory(),google:{},config:{cronSecret:'synthetic-cron'},health});
+ assert.equal((await h(new Request('https://app.test/gmail/health',{method:'POST'}))).status,401);assert.equal(called,0);
+ const response=await h(new Request('https://app.test/gmail/health',{method:'POST',headers:{Authorization:'Bearer synthetic-cron'}}));const body=await response.text();assert.equal(response.status,200);assert.match(body,/limit_remaining/);assert.doesNotMatch(body,/secret-label|private|synthetic-key/);
+});

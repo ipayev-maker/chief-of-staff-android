@@ -12,7 +12,7 @@ const readCookie=(r,name)=>(r.headers.get('Cookie')||'').split(';').map(v=>v.tri
 function redirect(result,reason,cookies=[]){const h=new Headers({...headers,Location:`${APP_ORIGIN}/?gmail=${result}${reason?'&reason='+encodeURIComponent(reason):''}#/inbox`});for(const c of cookies)h.append('Set-Cookie',c);return new Response(null,{status:303,headers:h})}
 const knownErrors=new Set(['invalid_grant','invalid_client','unauthorized_client','missing_required_scopes','accessNotConfigured','insufficientPermissions','rateLimitExceeded','userRateLimitExceeded','invalid_settings','scope_required','invalid_depth','thread_review_pending','gmail_network_error','mail_too_large','import_paused','analysis_consent_required','mail_delivery_failed']);
 const reason=e=>knownErrors.has(e?.reason||e?.message)?e.reason||e.message:['STORE_TIMEOUT','STORE_NETWORK'].includes(e?.code)?'gmail_temporarily_unavailable':'gmail_request_failed';
-export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,recover,deliver,logger=console}){
+export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,recover,deliver,health,logger=console}){
   // Allowlisted metadata only: never log request URLs, cookies, tokens,
   // exception messages/stacks or provider/database response bodies.
   function report(error,stage){
@@ -96,8 +96,9 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         const challenge=url.searchParams.get('challenge');if(!validChallenge(challenge))return json({error:'invalid_state'},400);return await start(request,challenge);
       }
       if(request.method==='GET'&&route==='callback')return await callback(request,url);
-      if(route==='tick'&&request.method==='POST'){
+      if(['tick','health'].includes(route)&&request.method==='POST'){
         if(!config.cronSecret||!safeEqual(request.headers.get('Authorization')||'','Bearer '+config.cronSecret))return json({error:'unauthorized'},401);
+        if(route==='health')return health?json({analysis:await health()}):json({error:'not_found'},404);
         return await locked(async()=>sync(await current()));
       }
       const connection=await current();
