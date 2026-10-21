@@ -1,4 +1,4 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#28487e"><title>Chief of Staff v3.21.0</title><style>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#28487e"><title>Chief of Staff v3.22.0</title><style>
 :root{
   --bg:#f3f6fb;--panel:#ffffff;--panel2:#f8faff;--ink:#142033;--muted:#637086;--line:#d6deea;
   --blue:#3768e8;--blue2:#224dbb;--blueSoft:#edf2ff;--green:#16805b;--greenSoft:#e8f7f1;
@@ -69,7 +69,7 @@ const DIRECT='https://spabmyyxiufuzsaydrmx.supabase.co';
 const BASE='';
 const KEY='sb_publishable_CNZsixovw_VFqkJNusVKFw_EErlVgMI';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYWJteXl4aXVmdXpzYXlkcm14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5ODM0NTUsImV4cCI6MjEwMTU1OTQ1NX0.PyIB9co32csgjuvOvfVpxizWEA2JqBg107Qy-ydg37U';
-const BUILD='v3.21.0-mail-reader-20261021';
+const BUILD='v3.22.0-mail-links-20261021';
 const S={
   section:'today',inboxId:null,mailId:null,projects:[],tasks:[],participants:[],areas:[],meetings:[],notes:[],assets:[],taskAssets:[],links:[],layouts:[],time:[],minutes:{},
   project:null,calendarReturn:false,tab:'overview',filter:'active',areaFilter:'all',task:null,taskDraft:null,taskSaveBusy:false,note:null,meeting:null,showCompleted:false,taskShowCompleted:false,taskShowIgnored:false,taskQuery:'',showArchivedNotes:false,captureDrafts:[],captureBusy:false,captureMessage:'',linkMode:false,linkFrom:null,linkType:'blocks'
@@ -398,8 +398,10 @@ function mailReaderPage(){
   mailReaderController=window.CoSMailReader.mount($('#mailReader'),{
     selectedId:S.mailId,mailRequest:(...args)=>window.CoSGmail.request(...args),notesRequest:quickNotesRequest,
     projects:S.projects,participants:S.participants,
+    participantGroups:projectId=>window.CoSParticipants.groups(cleanParticipants(),S.tasks,projectId,participantRecent()),onLinksSaved:links=>links.participant_ids.forEach(rememberParticipantSelection),
     onSelect:id=>{S.mailId=id;recordDashboardRoute()},onLogin:()=>openCalendarSettings(),onSettings:()=>$('#gmailSettings').click(),
     onNewParticipant:onSelect=>openParticipantEditor(null,{onSelect}),
+    onNewProject:onSelect=>openProjectEditor(null,{onSelect,activeOnly:true}),
     onChanged:result=>{MR.loaded=false;QN.loaded=false;for(const task of result.result?.tasks||[]){const old=S.tasks.find(t=>t.id===task.id);if(old)Object.assign(old,task);else S.tasks.unshift(task)}for(const meeting of result.result?.meetings||[]){const old=S.meetings.find(m=>m.id===meeting.id);if(old)Object.assign(old,meeting);else S.meetings.unshift(meeting)}}
   });
 }
@@ -692,19 +694,19 @@ async function persistNewProject(id,body){
   if(['title','status','area_key','risk_level'].some(key=>(row[key]??null)!==(body[key]??null)))throw Error('Проект уже создан с названием «'+row.title+'». Закройте эту форму и откройте его для редактирования.');
   return row;
 }
-async function openProjectEditor(id=null){
+async function openProjectEditor(id=null,{onSelect=null,activeOnly=false}={}){
   const creating=id===null,p=creating?{id:uid(),title:'',status:'active',area_key:S.areaFilter==='all'?null:S.areaFilter,risk_level:'green'}:S.projects.find(x=>x.id===id);if(!p)return;
   if($('#projectEditor')?.open)return;
   try{await flushNote();await flushQuickNote()}catch(e){return toast('Сначала сохраните заметку: '+e.message,'error')}
   if($('#projectEditor')?.open)return;
   $('#projectEditor')?.remove();const dialog=document.createElement('dialog');dialog.id='projectEditor';dialog.className='edit-dialog';dialog.setAttribute('aria-labelledby','projectEditorTitle');
-  dialog.innerHTML=`<h2 id="projectEditorTitle">${creating?'Добавить проект':'Редактировать проект'}</h2><form id="projectEditForm"><label>Название<input name="title" required value="${esc(p.title)}" autocomplete="off" placeholder="Название проекта"></label><label>Сфера<select name="area_key"><option value="">Без сферы</option>${S.areas.map(a=>`<option value="${esc(a.key)}" ${p.area_key===a.key?'selected':''}>${esc(a.title)}</option>`).join('')}</select><span class="field-hint">Задачи проекта будут отображаться в этой сфере.</span></label><div class="drawer-grid"><label>Статус<select name="status">${['active','paused','completed','cancelled'].map(v=>`<option value="${v}" ${(p.status||'active')===v?'selected':''}>${statusLabel(v)}</option>`).join('')}</select></label><label>Риск<select name="risk_level">${[['green','Низкий'],['yellow','Средний'],['red','Высокий']].map(([v,l])=>`<option value="${v}" ${(p.risk_level||'green')===v?'selected':''}>${l}</option>`).join('')}</select></label></div><p id="projectEditError" class="form-error" role="alert"></p><div class="actions"><button class="btn primary" type="submit">${creating?'Создать проект':'Сохранить'}</button><button class="btn" type="button" id="projectEditCancel">Отмена</button></div></form>`;
+  dialog.innerHTML=`<h2 id="projectEditorTitle">${creating?'Добавить проект':'Редактировать проект'}</h2><form id="projectEditForm"><label>Название<input name="title" required value="${esc(p.title)}" autocomplete="off" placeholder="Название проекта"></label><label>Сфера<select name="area_key"><option value="">Без сферы</option>${S.areas.map(a=>`<option value="${esc(a.key)}" ${p.area_key===a.key?'selected':''}>${esc(a.title)}</option>`).join('')}</select><span class="field-hint">Задачи проекта будут отображаться в этой сфере.</span></label><div class="drawer-grid"><label>Статус<select name="status">${(activeOnly?['active']:['active','paused','completed','cancelled']).map(v=>`<option value="${v}" ${(p.status||'active')===v?'selected':''}>${statusLabel(v)}</option>`).join('')}</select></label><label>Риск<select name="risk_level">${[['green','Низкий'],['yellow','Средний'],['red','Высокий']].map(([v,l])=>`<option value="${v}" ${(p.risk_level||'green')===v?'selected':''}>${l}</option>`).join('')}</select></label></div><p id="projectEditError" class="form-error" role="alert"></p><div class="actions"><button class="btn primary" type="submit">${creating?'Создать проект':'Сохранить'}</button><button class="btn" type="button" id="projectEditCancel">Отмена</button></div></form>`;
   document.body.appendChild(dialog);let busy=false;dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault()});dialog.addEventListener('close',()=>{dialog.remove();if(creating&&S.section==='projects'&&!S.project)projectsPage()});$('#projectEditCancel',dialog).onclick=()=>{if(!busy)dialog.close()};
   $('#projectEditForm',dialog).onsubmit=async event=>{
     event.preventDefault();if(busy)return;const form=event.currentTarget,error=$('#projectEditError',dialog);error.textContent='';let body;
     try{body=projectEditPayload(form)}catch(e){error.textContent=e.message;return}
     busy=true;form.setAttribute('aria-busy','true');$$('button,input,select',form).forEach(control=>control.disabled=true);
-    try{const row=creating?await persistNewProject(p.id,body):await persistProjectChanges(id,body);if(creating){S.filter=['completed','cancelled'].includes(row.status)?'closed':row.status;S.areaFilter='all'}dialog.close();render();toast(creating?'Проект создан':'Проект сохранён')}
+    try{const row=creating?await persistNewProject(p.id,body):await persistProjectChanges(id,body);if(creating){S.filter=['completed','cancelled'].includes(row.status)?'closed':row.status;S.areaFilter='all'}dialog.close();if(onSelect)onSelect(row);else render();toast(creating?'Проект создан':'Проект сохранён')}
     catch(e){error.textContent=(creating?'Не удалось создать проект: ':'Не удалось сохранить проект: ')+e.message}
     finally{busy=false;form.setAttribute('aria-busy','false');$$('button,input,select',form).forEach(control=>control.disabled=false)}
   };

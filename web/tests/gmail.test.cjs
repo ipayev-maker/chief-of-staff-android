@@ -19,9 +19,9 @@ test('scope is exact approved address or label; spam trash draft excluded',async
  assert.equal(m.inScope([message('1',NOW,'x','Антон <anton@example.com>',[])],config),true);
  assert.equal(m.inScope([message('1',NOW,'x','Антон <anton@example.com>',['TRASH'])],config),false);
 });
-test('body selection uses 90-day boundary and latest ten incl sent, not all thread bodies',async()=>{
+test('body selection uses 90-day boundary and latest three incl sent, not all thread bodies',async()=>{
  const m=await import(base+'mail.mjs');const rows=Array.from({length:15},(_,i)=>message(String(i),new Date(+NOW-i*86400000),'x','owner@example.com',['SENT']));rows.push(message('old',new Date(+NOW-91*86400000)));
- const selected=m.selectMessages(rows,{now:NOW});assert.equal(selected.selected.length,10);assert.equal(selected.eligible,15);assert.equal(selected.omitted,6);assert.equal(selected.selected.at(-1).id,'0');assert.ok(!selected.selected.some(x=>x.id==='old'));
+ const selected=m.selectMessages(rows,{now:NOW});assert.equal(selected.selected.length,3);assert.equal(selected.eligible,15);assert.equal(selected.omitted,13);assert.equal(selected.selected.at(-1).id,'0');assert.ok(!selected.selected.some(x=>x.id==='old'));
  assert.throws(()=>m.selectMessages(rows,{contextDays:365}),/invalid_depth/);
 });
 test('Gmail search uses epoch seconds, not Gmail PST date strings',async()=>{
@@ -45,7 +45,7 @@ test('pending review blocks body download and preserves editor',async()=>{
  const {importThread}=await import(base+'sync.mjs');const m=await import(base+'mail.mjs');let bodies=0;const store=memory({cos_communication_inbox:[{id:'pending',status:'ready'}]});const result=await importThread({store,mail:{thread:async()=>({messages:[message('new',NOW)]}),message:async()=>{bodies++;}},connection:{settings:{...m.DEFAULT_SETTINGS,label_ids:['Label_work']}},thread:{thread_id:'thread1',inbox_id:'pending',context_days:90,message_limit:10,message_ids:['previous']},now:()=>NOW});assert.equal(result.waiting,true);assert.equal(bodies,0);assert.equal(store.calls.some(c=>c[0]==='rpc'),false);
 });
 test('import only downloads selected IDs; previously reviewed IDs are context only',async()=>{
- const {importThread}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');const rows=Array.from({length:12},(_,i)=>message(String(i),new Date(+NOW-(11-i)*86400000)));const read=[];const store=memory({cos_communication_inbox:[{id:'done',status:'applied'}]});await importThread({store,mail:{thread:async()=>({messages:rows,historyId:'123'}),message:async id=>{read.push(id);return rows.find(r=>r.id===id)}},connection:{email:'owner@example.com',settings:{...m.DEFAULT_SETTINGS,label_ids:['Label_work']}},thread:{thread_id:'thread1',inbox_id:'done',context_days:90,message_limit:10,message_ids:rows.slice(0,-1).map(r=>r.id),processed_ids:[]},now:()=>NOW});assert.equal(read.length,10);assert.equal(read.includes('0'),false);const args=store.calls.find(c=>c[1]==='cos_gmail_capture')[2];assert.deepEqual(args.p_meta.new_message_ids,['11']);
+ const {importThread}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');const rows=Array.from({length:12},(_,i)=>message(String(i),new Date(+NOW-(11-i)*86400000)));const read=[];const store=memory({cos_communication_inbox:[{id:'done',status:'applied'}]});await importThread({store,mail:{thread:async()=>({messages:rows,historyId:'123'}),message:async id=>{read.push(id);return rows.find(r=>r.id===id)}},connection:{email:'owner@example.com',settings:{...m.DEFAULT_SETTINGS,label_ids:['Label_work']}},thread:{thread_id:'thread1',inbox_id:'done',context_days:90,message_limit:10,message_ids:rows.slice(0,-1).map(r=>r.id),processed_ids:[]},now:()=>NOW});assert.equal(read.length,3);assert.equal(read.includes('0'),false);const args=store.calls.find(c=>c[1]==='cos_gmail_capture')[2];assert.deepEqual(args.p_meta.new_message_ids,['11']);
 });
 test('out of scope thread never downloads bodies',async()=>{
  const {importThread}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');let bodies=0;const store=memory();await importThread({store,mail:{thread:async()=>({messages:[message('new',NOW,'x','other@example.com',[])]}),message:async()=>{bodies++}},connection:{settings:{...m.DEFAULT_SETTINGS,emails:['approved@example.com']}},thread:{thread_id:'thread1'},now:()=>NOW});assert.equal(bodies,0);
@@ -275,14 +275,14 @@ test('51st thread is queued and history advances only after durable discovery',a
  await discover({store,connection,mail:{thread:async()=>({messages:[message('new',NOW)]})},now:()=>NOW});
  assert.equal(store.db.cos_gmail_threads.length,51);assert.equal(store.db.cos_gmail_threads.at(-1).thread_id,'thread51');assert.equal(store.db.cos_gmail_connection[0].cursor.history_id,'2');
 });
-test('automatic import reads only seven days and drains every unread message in chronological batches',async()=>{
+test('automatic import reads only the latest three messages without draining older history',async()=>{
  const {importThread}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');
  const rows=[message('too-old',new Date(+NOW-7*86400000-1)),...Array.from({length:12},(_,i)=>message('m'+i,new Date(+NOW-86400000+i*60000),'x'.repeat(10000)))];
  const thread={thread_id:'thread1',context_days:90,message_limit:10,processed_ids:[]},read=[],newIds=[];
  const store=memory({cos_gmail_threads:[thread]});
  store.rpc=async(name,args)=>{assert.equal(name,'cos_gmail_capture');newIds.push(...args.p_meta.new_message_ids);assert.equal(args.p_meta.context_days,7);assert.equal(args.p_meta.delivery,'tasks');assert.deepEqual(args.p_message_ids,args.p_meta.messages.map(m=>m.id));thread.processed_ids.push(...args.p_meta.new_message_ids);return {duplicate:false,item:{}}};
  for(let i=0;i<5;i++)await importThread({store,mail:{thread:async()=>({messages:rows}),message:async id=>{read.push(id);return rows.find(m=>m.id===id)}},connection:{email:'owner@example.com',settings:{...m.DEFAULT_SETTINGS,auto_tasks:true,label_ids:['Label_work']}},thread,now:()=>NOW});
- assert.equal(read.includes('too-old'),false);assert.deepEqual(newIds,rows.slice(1).map(m=>m.id));assert.equal(new Set(newIds).size,12);
+ assert.equal(read.includes('too-old'),false);assert.deepEqual(newIds,rows.slice(-3).map(m=>m.id));assert.equal(new Set(newIds).size,3);assert.equal(read.length,3);
 });
 async function deliveryFixture({changes=[],questions=[],status='ready',auto=true}={}){
  const {createCommunicationInbox}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');

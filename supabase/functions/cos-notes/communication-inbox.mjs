@@ -1,3 +1,4 @@
+import {mailAnalysisWindow} from '../cos-gmail/mail.mjs';
 // Server-only communication review. Sources and analysis are persisted before
 // further work; only the service-only apply RPC changes business records.
 import {dateEvidence, exactDay, validDay} from '../telegram-webhook/date-evidence.mjs';
@@ -269,8 +270,9 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
         }
         }catch(error){if(!corrections.length||error?.status===409)throw error;voiceFailure=/^voice_[a-z_]+$/.test(error?.safeCode||error?.code||'')?error.safeCode||error.code:'voice_unavailable';item=await update(item,{attempt_id:attempt,source_meta:{audio_error:voiceFailure}});}
       }
+      item=mailAnalysisWindow(item);
       const context=await contextFor(store),resolvedZone=await zone();
-      if(item.source_meta?.type==='gmail'){context.tasks=context.tasks.filter(t=>!/^Разобрать письмо:/u.test(t.description||''));context.gmail_people=await store.list('cos_gmail_people','select=email,participant_id&order=email.asc');}
+      if(item.source_meta?.type==='gmail'){context.tasks=context.tasks.filter(t=>!/^Разобрать письмо:/u.test(t.description||''));context.gmail_people=await store.list('cos_gmail_people','select=email,participant_id&order=email.asc');const thread=(await store.page('cos_gmail_threads','select=project_id&'+eq('thread_id',item.source_meta.thread_id)+'&limit=1'))[0];if(thread)item={...item,source_meta:{...item.source_meta,project_id:thread.project_id}};}
       if(typeof model!=='function')fail(503,'analysis_unavailable');
       generated=await model({text:sourceText(item,corrections),context:modelContext(item.source_meta?.type==='gmail'?{...context,tasks:context.tasks.slice(0,100)}:context),refDate:sourceInstant(item),timeZone:resolvedZone,...(item.source_meta?.type==='gmail'?{mail:{...item.source_meta,...(item.source_meta.review_parent_id?{review_focus:item.proposal?.changes?.[0]||null}:{})}}:{})});
       const proposal=normalizeInboxProposal(generated.data,{item,context,corrections,timeZone:resolvedZone,uuid});
@@ -341,7 +343,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     const proposal=editableProposal(data.proposal??item.proposal,item.proposal),actions=await compile(item,proposal);
     try{const result=await store.rpc('cos_inbox_apply',{p_id:id,p_revision:data.revision,p_request_id:data.request_id,p_actions:actions,p_confirmation:clone(data)});
       if(item.source_meta?.type==='gmail')for(const change of proposal.changes.filter(c=>c.selected&&c.participant_id&&c.participant_email))await store.upsert('cos_gmail_people',{email:change.participant_email,participant_id:change.participant_id},'email').catch(()=>{});
-      if(item.source_meta?.type==='gmail'){const projects=[...new Set(proposal.changes.filter(c=>c.selected&&c.project_id).map(c=>c.project_id))];if(projects.length===1)await store.patch('cos_gmail_threads',eq('thread_id',item.source_meta.thread_id),{project_id:projects[0]}).catch(()=>{});}
+      if(item.source_meta?.type==='gmail'){const projects=[...new Set(proposal.changes.filter(c=>c.selected&&c.project_id).map(c=>c.project_id))];if(projects.length===1)await store.patch('cos_gmail_threads',eq('thread_id',item.source_meta.thread_id)+'&links_revision=eq.0',{project_id:projects[0]}).catch(()=>{});}
       return {...result,item:safeItem(result.item)}}catch(error){throw mapped(error)}
   }
   async function defer(id,data){
@@ -394,10 +396,11 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
   }
   async function audio(id){const {item}=await get(id);if(!item.source_meta?.audio_path||!voice?.read)fail(404,'audio_not_found');try{return await voice.read({communicationId:id})}catch{fail(503,'voice_unavailable')}}
   async function recover(id){
-    const {item}=await get(id),analysis=item.proposal?.analysis;
+    let {item}=await get(id);const analysis=item.proposal?.analysis;
     if(item.source_meta?.type!=='gmail'||item.source_meta.superseded||item.status!=='error'||item.error_code!=='invalid_analysis'||!analysis?.result)return null;
     const consent=(await store.page('cos_gmail_connection','select=settings&id=eq.owner&limit=1'))[0];
     if(consent?.settings?.ai_consent!==true)return null;
+    item=mailAnalysisWindow(item);
     const context=await contextFor(store);context.gmail_people=await store.list('cos_gmail_people','select=email,participant_id&order=email.asc');
     let proposal;try{proposal=normalizeInboxProposal(analysis.result,{item,context,corrections:item.proposal?.corrections||[],timeZone:await zone(),uuid})}catch{return null;}
     proposal.analysis={...analysis,status:'completed',recovered:true};delete proposal.analysis.result;

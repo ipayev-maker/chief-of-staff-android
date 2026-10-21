@@ -39,3 +39,40 @@ test('mail routes round trip and actionable suggestions stay tied to the selecte
  const records=[{id,source_meta:{delivery:'review',messages:[{id:'m1'},{id:'m2'}]},proposal:{changes:[{id:'a',source_message_id:'m1',trigger_message_id:'m1'},{id:'b',source_message_id:'m2',trigger_message_id:'m2'}]}}];
  assert.deepEqual(reader.proposalsForMessage(records,'m1').map(x=>x.change.id),['a']);assert.equal(reader.safeLink('javascript:alert(1)'),null);
 });
+
+test('thread link writes validate complete data and map optimistic conflicts without leaking DB errors',async()=>{
+ const {saveThreadLinks}=await import(base+'links.mjs');const calls=[],person='22222222-2222-4222-8222-222222222222';
+ const store={rpc:async(name,args)=>{calls.push({name,args});return {project_id:id,participant_ids:[person],revision:3}}};
+ const data={thread_id:'t1',project_id:id,participant_ids:[person],revision:2};
+ for(const bad of [{...data,project_id:'bad'},{...data,participant_ids:[person,person]},{...data,participant_ids:null},{...data,revision:-1},{...data,extra:true}])await assert.rejects(saveThreadLinks(store,bad),e=>e.status===400);
+ assert.equal(calls.length,0);assert.equal((await saveThreadLinks(store,data)).revision,3);assert.equal(calls[0].name,'cos_gmail_set_links');assert.deepEqual(calls[0].args.p_participant_ids,[person]);
+ await assert.rejects(saveThreadLinks({rpc:async()=>{throw {code:'PT409',message:'private details'}}},data),e=>e.reason==='links_conflict'&&!e.message.includes('private'));
+});
+test('mail list filters are applied before pagination and return all linked people',async()=>{
+ const {createMailReader}=await import(base+'reader.mjs');let query;const person='22222222-2222-4222-8222-222222222222';
+ const store={page:async(t,q)=>{query=q;return [{thread_id:'t1',inbox_id:id,project_id:id}]},list:async(t)=>t==='cos_gmail_thread_participants'?[{thread_id:'t1',participant_id:person}]:[]};
+ const reader=createMailReader({store});const r=await reader.list(50,{projectId:id,participantId:person});assert.match(query,/offset=50/);assert.match(query,/!inner/);assert.ok(query.includes('project_id=eq.'+id));assert.ok(query.includes('mail_people.participant_id=eq.'+person));assert.deepEqual(r.items[0].participant_ids,[person]);
+ await assert.rejects(reader.list(0,{projectId:'bad'}),e=>e.status===400);
+});
+test('links endpoint rejects CSRF and foreign sessions before any mutation',async()=>{
+ const {createGmailHandler}=await import(base+'handler.mjs');let writes=0;
+ const store={page:async t=>t==='cos_calendar_sessions'?[{google_sub:'other'}]:[{google_sub:'owner'}],rpc:async()=>{writes++}};
+ const handler=createGmailHandler({store,google:{},config:{}});
+ const wrong=await handler(new Request('https://app.test/gmail/links',{method:'POST',headers:{Origin:'https://evil.invalid'},body:'{}'}));assert.equal(wrong.status,403);
+ const foreign=await handler(new Request('https://app.test/gmail/links',{method:'POST',headers:{Origin:'https://nikodim.vercel.app',Cookie:'__Host-cos-calendar-session=foreign'},body:'{}'}));assert.equal(foreign.status,401);assert.equal(writes,0);
+});
+test('explicit conversation project wins for new actions; ambiguous people and existing tasks are preserved',()=>{
+ const {withMailLinks}=require('../mail-reader.js');const context={projects:[{id:'active',title:'Проект',status:'active'},{id:'old',status:'completed'}],participants:[{id:'a',name:'Антон'},{id:'b',name:'Мария'}]},base={kind:'task_create',project_id:null,participant_id:null};
+ let c=withMailLinks(base,{project_id:'active',participant_ids:['a'],revision:1},context);assert.equal(c.project_id,'active');assert.equal(c.participant_id,'a');assert.equal(base.project_id,null);
+ c=withMailLinks(base,{project_id:'old',participant_ids:['a','b'],revision:1},context);assert.equal(c.project_id,null);assert.equal(c.participant_id,null);
+ c=withMailLinks({...base,participant_name:'Андрей'},{participant_ids:['a']},context);assert.equal(c.participant_id,null);
+ c=withMailLinks({...base,project_id:'old'},{project_id:'active',revision:1},context);assert.equal(c.project_id,'active');
+ c=withMailLinks({...base,kind:'task_update',project_id:'old'},{project_id:'active',revision:1},context);assert.equal(c.project_id,'old');
+});
+test('legacy captured mail is clipped to three messages before reanalysis, with corrected evidence offsets',async()=>{
+ const {mailAnalysisWindow,DEFAULT_SETTINGS}=await import(base+'mail.mjs');assert.equal(DEFAULT_SETTINGS.message_limit,3);
+ let source='';const messages=[];for(let i=0;i<5;i++){const start=source.length;source+='Message '+i+'\n';messages.push({id:'m'+i,start,end:source.length,date:'2026-10-2'+i});}
+ const result=mailAnalysisWindow({source_text:source,source_meta:{type:'gmail',messages,new_message_ids:['m0','m4']}});
+ assert.equal(result.source_meta.messages.length,3);assert.doesNotMatch(result.source_text,/Message [01]/);assert.deepEqual(result.source_meta.new_message_ids,['m4']);
+ for(const m of result.source_meta.messages)assert.ok(result.source_text.slice(m.start,m.end).includes('Message '+m.id.slice(1)));
+});
