@@ -1,4 +1,4 @@
-import {inScope,searchQuery,selectMessages,snapshot,validId} from './mail.mjs';
+import {inScope,searchQuery,selectMessages,snapshot,validId,MAIL_MESSAGE_LIMIT} from './mail.mjs';
 const eq=(k,v)=>k+'=eq.'+encodeURIComponent(v);
 const THREADS='cos_gmail_threads',CONNECTION='cos_gmail_connection';
 export async function discover({store,mail,connection,now=()=>new Date()}){
@@ -63,7 +63,7 @@ export async function importThread({store,mail,connection,thread,now=()=>new Dat
     await store.patch(THREADS,eq('thread_id',thread.thread_id),{pending:false,last_error:null});return {imported:false};
   }
   const automatic=connection.settings.auto_tasks===true;
-  const contextDays=automatic?7:thread.context_days,limit=thread.message_limit||10;
+  const contextDays=automatic?7:thread.context_days,limit=MAIL_MESSAGE_LIMIT;
   // A pending review is immutable until reviewed. Leave new mail queued, so
   // a background refresh never wipes the owner's editor or saved corrections.
   let previousReadIds=[];
@@ -75,14 +75,9 @@ export async function importThread({store,mail,connection,thread,now=()=>new Dat
   const processedIds=[...new Set([...(thread.processed_ids||[]),...previousReadIds])];
   let selection=selectMessages(messages,{now:now(),contextDays,limit}),backlog=false;
   if(automatic){
-    // Read only the last seven days. Batches progress oldest-first; all retained
-    // IDs are durable. A long thread must not silently discard its oldest work.
-    const eligible=messages.filter(m=>selectMessages([m],{now:now(),contextDays:7,limit:10}).selected.length)
-      .sort((a,b)=>Number(a.internalDate)-Number(b.internalDate)||a.id.localeCompare(b.id));
-    const unread=eligible.filter(m=>!processedIds.includes(m.id));
-    const fresh=unread.slice(0,3),context=eligible.filter(m=>processedIds.includes(m.id)&&Number(m.internalDate)<=Number(fresh[0]?.internalDate)).slice(-2);
-    selection={selected:[...context,...fresh],eligible:eligible.length,total:messages.length,omitted:messages.length-context.length-fresh.length};
-    backlog=unread.length>fresh.length;
+    // A reply is analyzed with at most the two preceding messages. Older
+    // unread history does not become a separate backlog outside this window.
+    const fresh=selection.selected.filter(m=>!processedIds.includes(m.id));
     if(!fresh.length)selection.selected=[];
   }
   const ids=selection.selected.map(m=>m.id);

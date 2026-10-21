@@ -1,6 +1,7 @@
 // No mailbox-wide body fetch: select eligible message IDs from metadata first.
 export const GMAIL_SCOPES = Object.freeze(['openid','email','https://www.googleapis.com/auth/gmail.readonly']);
-export const DEFAULT_SETTINGS = Object.freeze({label_ids:[],emails:[],enabled:false,ai_consent:false,auto_tasks:false,review_before_create:true,initial_days:7,context_days:7,message_limit:10});
+export const MAIL_MESSAGE_LIMIT=3;
+export const DEFAULT_SETTINGS = Object.freeze({label_ids:[],emails:[],enabled:false,ai_consent:false,auto_tasks:false,review_before_create:true,initial_days:7,context_days:7,message_limit:MAIL_MESSAGE_LIMIT});
 export const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 export const email = value => typeof value === 'string' && /^[a-zA-Z0-9.!#$%&'*+\-/=?^_`{|}~]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/.test(value) ? value.toLowerCase() : null;
 export function settings(value) {
@@ -23,8 +24,8 @@ export function searchQuery(config,now=new Date()){
   // only for approved email addresses. Values are validated before interpolation.
   return `after:${Math.floor((+now-config.initial_days*86400000)/1000)} -in:spam -in:trash -in:drafts`;
 }
-export function selectMessages(messages,{now=new Date(),contextDays=90,limit=10}={}){
-  if(![7,90,180].includes(contextDays)||!Number.isInteger(limit)||limit<10||limit>50)throw Error('invalid_depth');
+export function selectMessages(messages,{now=new Date(),contextDays=90,limit=MAIL_MESSAGE_LIMIT}={}){
+  if(![7,90,180].includes(contextDays)||!Number.isInteger(limit)||limit<1||limit>50)throw Error('invalid_depth');
   const eligible=messages.filter(m=>validId(m.id)&&Number.isFinite(Number(m.internalDate))&&Number(m.internalDate)>=+now-contextDays*86400000&&Number(m.internalDate)<=+now+300000&&!(m.labelIds||[]).some(l=>['SPAM','TRASH','DRAFT'].includes(l)))
     .sort((a,b)=>Number(a.internalDate)-Number(b.internalDate)||a.id.localeCompare(b.id));
   return {selected:eligible.slice(-limit),eligible:eligible.length,total:messages.length,omitted:messages.length-Math.min(limit,eligible.length)};
@@ -58,7 +59,7 @@ export function messageText(message){
   // marker: quoted text remains explicitly untrusted historical context.
   return {text:raw.trim(),attachments:[...new Set(attachments)],external,truncated:raw.length>10000};
 }
-export function snapshot(messages,{threadId,selection,ownerEmail,processedIds=[],contextDays=90,limit=10,projectId=null}){
+export function snapshot(messages,{threadId,selection,ownerEmail,processedIds=[],contextDays=90,limit=MAIL_MESSAGE_LIMIT,projectId=null}){
   const meta={type:'gmail',subject:header(messages.at(-1)||{},'subject').slice(0,200)||'Переписка Gmail',thread_id:threadId,owner_email:ownerEmail,project_id:projectId,context_days:contextDays,message_limit:limit,total_messages:selection.total,omitted_messages:selection.omitted,messages:[],new_message_ids:[],partial:false};
   let source='';const retained=[];
   // At most 58k UTF-16 units in a single review, prioritise the newest messages.
@@ -83,4 +84,16 @@ export function snapshot(messages,{threadId,selection,ownerEmail,processedIds=[]
   meta.partial ||= meta.omitted_messages>0;
   meta.message_date=meta.messages.at(-1)?.date;
   return {source:source.trimEnd(),meta,subject:header(messages.at(-1)||{},'subject').slice(0,200)||'Переписка Gmail'};
+}
+
+// Keep already captured legacy conversations within the same analysis budget.
+export function mailAnalysisWindow(item){
+  if(item.source_meta?.type!=='gmail'||(item.source_meta.messages?.length||0)<=MAIL_MESSAGE_LIMIT)return item;
+  const messages=[...item.source_meta.messages].sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))).slice(-MAIL_MESSAGE_LIMIT);
+  let source='';const kept=[];
+  for(const m of messages){
+    if(!Number.isSafeInteger(m.start)||!Number.isSafeInteger(m.end)||m.start<0||m.end<=m.start)throw Error('invalid_mail_window');
+    const part=String(item.source_text||'').slice(m.start,m.end);const start=source.length;source+=part+'\n\n';kept.push({...m,start,end:source.length});
+  }
+  return {...item,source_text:source,transcript:null,source_meta:{...item.source_meta,caption:null,messages:kept,message_limit:MAIL_MESSAGE_LIMIT,new_message_ids:(item.source_meta.new_message_ids||[]).filter(id=>kept.some(m=>m.id===id)),omitted_messages:(item.source_meta.omitted_messages||0)+item.source_meta.messages.length-kept.length,partial:true}};
 }

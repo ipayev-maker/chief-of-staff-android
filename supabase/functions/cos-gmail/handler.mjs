@@ -3,6 +3,7 @@ import {APP_ORIGIN,randomToken,sha256,encryptSecret,decryptSecret,safeEqual} fro
 import {DEFAULT_SETTINGS,settings,validId} from './mail.mjs';
 import {createMailClient} from './client.mjs';
 import {createMailReader} from './reader.mjs';
+import {saveThreadLinks,threadLinks} from './links.mjs';
 import {syncMail} from './sync.mjs';
 const C='cos_gmail_connection',STATES='cos_gmail_oauth_states',FLOW='__Host-cos-gmail-flow',SESSION='__Host-cos-calendar-session';
 const eq=(k,v)=>k+'=eq.'+encodeURIComponent(v);
@@ -108,8 +109,8 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         if(!await authorized(request,connection))return json({error:'unauthorized'},401);
         if(!connection)return json({error:'not_connected'},409);
         const reader=createMailReader({store,mail});
-        try{return json(route==='letters'?await reader.list(Number(url.searchParams.get('offset')||0)):route==='thread'?await reader.thread(url.searchParams.get('id'),connection):await reader.message(url.searchParams.get('thread'),url.searchParams.get('id'),connection));}
-        catch(error){const code=['invalid_thread','invalid_message','invalid_pagination','thread_unavailable','mail_too_large'].includes(error.reason)?error.reason:reason(error);return json({error:code},[400,404,413].includes(error.status)?error.status:503);}
+        try{return json(route==='letters'?await reader.list(Number(url.searchParams.get('offset')||0),{projectId:url.searchParams.get('project_id'),participantId:url.searchParams.get('participant_id')}):route==='thread'?await reader.thread(url.searchParams.get('id'),connection):await reader.message(url.searchParams.get('thread'),url.searchParams.get('id'),connection));}
+        catch(error){const code=['invalid_links','invalid_thread','invalid_message','invalid_pagination','thread_unavailable','mail_too_large'].includes(error.reason)?error.reason:reason(error);return json({error:code},[400,404,413].includes(error.status)?error.status:503);}
       }
       if(route==='status'&&request.method==='GET'){
         if(!await authorized(request,connection))return json({authenticated:false,configured:true});
@@ -122,7 +123,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
           errors:inbox.filter(i=>i.status==='error').length,discovering:!!connection?.settings?.enabled&&connection?.cursor?.mode!=='history'};
         return json({authenticated:true,progress,connection:connection?{email:connection.email,status:connection.status,last_sync_at:connection.last_sync_at,last_error:connection.last_error}:null,settings:connection?.settings||DEFAULT_SETTINGS,threads:threads.slice(0,50),pilot_full:false});
       }
-      if(!['start','settings','labels','sync','disconnect','expand','project'].includes(route))return json({error:'not_found'},404);
+      if(!['start','settings','labels','sync','disconnect','expand','project','links'].includes(route))return json({error:'not_found'},404);
       if(request.method!=='POST')return json({error:'method_not_allowed'},405);
       if(!allowedOrigin(request.headers.get('Origin')))return json({error:'invalid_origin'},403);
       if(Number(request.headers.get('Content-Length')||0)>16384)return json({error:'request_too_large'},413);
@@ -148,19 +149,22 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
           const result=await (await mail(latest)).labels();return json({labels:(result.labels||[]).filter(l=>validId(l.id)&&!['SPAM','TRASH','DRAFT'].includes(l.id)).map(l=>({id:l.id,name:String(l.name).slice(0,200)}))});
         }
         if(route==='sync')return sync(latest);
+        if(route==='links'){
+          try{return json({ok:true,links:await saveThreadLinks(store,data)})}
+          catch(error){if(error.reason&&[400,404,409,422].includes(error.status))return json({error:error.reason},error.status);throw error;}
+        }
         if(!validId(data.thread_id))return json({error:'invalid_thread'},400);
         const thread=(await store.page('cos_gmail_threads',eq('thread_id',data.thread_id)+'&limit=1'))[0];if(!thread)return json({error:'not_found'},404);
         if(route==='project'){
           if(data.project_id!==null){const project=(await store.page('projects',eq('id',data.project_id)+'&status=eq.active&limit=1'))[0];if(!project)return json({error:'invalid_project'},400);}
-          await store.patch('cos_gmail_threads',eq('thread_id',thread.thread_id),{project_id:data.project_id});return json({ok:true});
+          const previous=await threadLinks(store,thread);
+          const links=await saveThreadLinks(store,{thread_id:thread.thread_id,project_id:data.project_id,participant_ids:previous.participant_ids,revision:previous.revision});return json({ok:true,links});
         }
-        if(![90,180].includes(data.context_days)||![20,30,40,50].includes(data.message_limit))return json({error:'invalid_depth'},400);
-        // Expansion is an explicit owner action; it invalidates only this
-        // review with revision checks, never the mailbox-wide depth setting.
-        await store.rpc('cos_gmail_expand',{p_thread_id:thread.thread_id,p_revision:data.revision,p_days:data.context_days,p_limit:data.message_limit});return json({ok:true});
+        return json({error:'invalid_depth'},400); // Fixed three-message analysis window.
+
       });
     }catch(error){
-      report(error,['start','callback','status','tick','settings','labels','sync','disconnect','expand','project'].includes(route)?route:'unknown_route');
+      report(error,['start','callback','status','tick','settings','labels','sync','disconnect','expand','project','links'].includes(route)?route:'unknown_route');
       if(route==='start'&&request.method==='POST'||route==='callback'&&request.method==='GET')return redirect('error',reason(error),[cookie(FLOW,'',0)]);
       return json({error:reason(error)},error?.code==='PT409'?409:knownErrors.has(error?.message)?400:503);
     }
