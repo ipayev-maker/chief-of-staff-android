@@ -41,3 +41,10 @@ test('mail model context excludes legacy review placeholders while retaining rea
  let called=false;const model=async({context})=>{called=true;assert.deepEqual(context.tasks.map(t=>t.id),[real.id]);return {data:{summary:'Информация',questions:[],changes:[]}}};
  const result=await createCommunicationInbox({store,model,timeZone:'Europe/Moscow'}).analyze(id,{revision:1});assert.equal(called,true);assert.equal(result.item.status,'ready');
 });
+
+test('an unresolved optional deadline does not turn a clear request into manual work',async()=>{
+ const {normalizeInboxProposal}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');const {mailActionDecision}=await import('../../supabase/functions/cos-notes/communication-mail-auto.mjs');
+ const quote='Пришлите чертёж примерно завтра.',item=source(quote);
+ const p=normalizeInboxProposal({summary:'Чертёж',changes:[{kind:'task_create',text:'Прислать чертёж',evidence:quote,source_message_id:'m',trigger_evidence:quote,responsibility_evidence:quote,owner_relation:'owner_request',action_intent:'request',date_text:'примерно завтра',date_status:'ambiguous'}]},{item,context:{projects:[],participants:[],tasks:[],briefs:[]}});
+ assert.equal(p.changes[0].deadline,null);assert.ok(p.changes[0].mail_date_warning);assert.equal(p.changes[0].mail_review_reason,null);assert.equal(mailActionDecision(p.changes[0],item).mode,'automatic');
+});

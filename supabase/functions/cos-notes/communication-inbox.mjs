@@ -145,7 +145,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
       change.mail_trigger_evidence=value.trigger_evidence;
       change.mail_proposed_date=value.deadline_agreement==='proposed'&&typeof value.date_text==='string'&&value.evidence.includes(value.date_text)?value.date_text:null;
       change.mail_review_reason=text(value.review_reason,500,false)?value.review_reason:null;
-      if(questions.length>beforeQuestions&&!change.mail_proposed_date)change.mail_review_reason ||= questions.slice(beforeQuestions).join(' ').slice(0,500);
+      if(questions.length>beforeQuestions&&!change.mail_proposed_date)change.mail_date_warning=questions.slice(beforeQuestions).join(' ').slice(0,500);
     }
     if(mail?.expanded){change.selected=false;change.evidence_restored=true;}
     change.date_intent=!workDate&&!!dates.deadline;
@@ -307,7 +307,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
           const workUnchanged=change.kind==='task_update'&&baseline&&!original?.work_date_intent&&change.planned_on===original?.planned_on&&change.planned_time===original?.planned_time;
           if(!workUnchanged){task.planned_on=change.planned_on;task.planned_start_at=change.planned_on&&change.planned_time?inboxDeadlineInstant(change.planned_on,change.planned_time,proposal.time_zone||await zone()):null;task.planned_end_at=null;}
         }
-        if(change.kind==='task_create'){task.details=[proposal.mail_review_reason,change.mail_proposed_date&&'Предлагаемый срок (не подтверждён): '+change.mail_proposed_date,change.participant_suggestion?.name&&'Участник из сообщения: '+change.participant_suggestion.name,'Из сообщения: '+change.evidence,'Источник: https://nikodim.vercel.app/#/inbox/'+item.id].filter(Boolean).join('\n');actions.push({id:change.id,kind:'task_create',task});}
+        if(change.kind==='task_create'){task.details=[proposal.mail_review_reason,change.mail_date_warning&&'Срок не установлен автоматически: '+change.mail_date_warning,change.mail_proposed_date&&'Предлагаемый срок (не подтверждён): '+change.mail_proposed_date,change.participant_suggestion?.name&&'Участник из сообщения: '+change.participant_suggestion.name,'Из сообщения: '+change.evidence,'Источник: https://nikodim.vercel.app/#/inbox/'+item.id].filter(Boolean).join('\n');actions.push({id:change.id,kind:'task_create',task});}
         else {const patch={};for(const [key,value]of Object.entries(task)){if(JSON.stringify(value)!==JSON.stringify(baseline?.[key]??null))patch[key]=value;}if(own(patch,'next_check_on'))patch.next_check_at=null;if(!Object.keys(patch).length)continue;actions.push({id:change.id,kind:'task_update',task_id:change.task_id,version:change.task_version,patch});}
       }else if(change.kind==='meeting_create'){
         const starts_at=inboxDeadlineInstant(change.meeting_date,change.meeting_time,proposal.time_zone||await zone());
