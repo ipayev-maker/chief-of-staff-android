@@ -41,3 +41,23 @@ rejected. Existing Google Calendar and Gmail refresh tokens are unchanged.
 Validation includes the 51st thread, week boundary, long-thread batching, immediate
 task creation, repeated delivery, uncertain-mail fallback, information-only mail,
 consent, and complete login transfer including wrong-browser and replay rejection.
+
+### 3.19.1 — Mail awaiting a decision
+
+The Tasks screen places generated “Разобрать письмо:” tasks in a separate
+“Неразобранные” section above area/project filters. It recognizes the existing
+fallback title together with the generated, allowlisted inbox-source link; no
+mail is copied or imported again. Newest imports appear first. Search applies
+to both pending and ignored mail; area filters apply only to ordinary tasks.
+
+“Ignore” persists the existing task's `cancelled` status with a conditional
+`cos_version`/status PATCH and requires the returned matching row. It does not
+mark work completed, delete Gmail mail, reset processed message IDs, or mute
+future replies. “Игнорированные” is collapsed by default and allows restoring
+the same task to `open`. Existing completion still resolves a review task;
+renaming it into a concrete action moves it into the normal task list. No new
+schema or backend deployment is required.
+
+Regression coverage: legacy recognition, order/filter placement, no duplicate
+rows, escaping, source deep link, persisted ignore/restore, stale-version and
+network errors, duplicate clicks, and active-timer protection.
