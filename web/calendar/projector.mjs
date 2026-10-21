@@ -5,7 +5,7 @@
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP = 'chief-of-staff';
-const APP_URL = 'https://chief-of-staff-v3-live.vercel.app/';
+const APP_URL = 'https://nikodim.vercel.app/';
 function day(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error('invalid_date');
   const parsed = new Date(value + 'T00:00:00.000Z');

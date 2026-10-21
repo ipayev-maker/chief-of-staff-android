@@ -2,7 +2,7 @@
 // Every eligible communication is durable before speech/AI processing. Clear
 // direct commands create records; other proposals retain explicit review.
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const APP='https://chief-of-staff-v3-live.vercel.app/';
+const APP='https://nikodim.vercel.app/';
 const ok=()=>new Response('ok',{status:200,headers:{'Cache-Control':'no-store'}});
 const json=(error,status)=>new Response(JSON.stringify({error}),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
 const fail=code=>{throw Object.assign(new Error(code),{safeCode:code})};

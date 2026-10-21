@@ -1,3 +1,4 @@
+import {PUBLIC_ORIGIN,allowedOrigin,validChallenge,beginTransfer,issueTransfer} from '../cos-google-calendar/domain-bridge.mjs';
 import {APP_ORIGIN,randomToken,sha256,encryptSecret,decryptSecret,safeEqual} from '../cos-google-calendar/google.mjs';
 import {DEFAULT_SETTINGS,settings,validId} from './mail.mjs';
 import {createMailClient} from './client.mjs';
@@ -9,9 +10,9 @@ const json=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{...he
 const cookie=(name,value,age)=>`${name}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${age}`;
 const readCookie=(r,name)=>(r.headers.get('Cookie')||'').split(';').map(v=>v.trim().split('=')).find(v=>v[0]===name)?.[1]||'';
 function redirect(result,reason,cookies=[]){const h=new Headers({...headers,Location:`${APP_ORIGIN}/?gmail=${result}${reason?'&reason='+encodeURIComponent(reason):''}#/inbox`});for(const c of cookies)h.append('Set-Cookie',c);return new Response(null,{status:303,headers:h})}
-const knownErrors=new Set(['invalid_grant','invalid_client','unauthorized_client','missing_required_scopes','accessNotConfigured','insufficientPermissions','rateLimitExceeded','userRateLimitExceeded','invalid_settings','scope_required','invalid_depth','thread_review_pending','gmail_network_error','mail_too_large','import_paused','analysis_consent_required']);
+const knownErrors=new Set(['invalid_grant','invalid_client','unauthorized_client','missing_required_scopes','accessNotConfigured','insufficientPermissions','rateLimitExceeded','userRateLimitExceeded','invalid_settings','scope_required','invalid_depth','thread_review_pending','gmail_network_error','mail_too_large','import_paused','analysis_consent_required','mail_delivery_failed']);
 const reason=e=>knownErrors.has(e?.reason||e?.message)?e.reason||e.message:['STORE_TIMEOUT','STORE_NETWORK'].includes(e?.code)?'gmail_temporarily_unavailable':'gmail_request_failed';
-export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,recover,logger=console}){
+export function createGmailHandler({store,google,config,now=()=>new Date(),mailFactory=createMailClient,analyze,recover,deliver,logger=console}){
   // Allowlisted metadata only: never log request URLs, cookies, tokens,
   // exception messages/stacks or provider/database response bodies.
   function report(error,stage){
@@ -39,7 +40,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
   async function sync(connection){
     if(!connection?.settings?.enabled)return json({ok:false,reason:'import_paused'});
     try{
-      const result=await syncMail({store,mail:await mail(connection),connection,now,analyze,recover});
+      const result=await syncMail({store,mail:await mail(connection),connection,now,analyze,recover,deliver});
       await store.patch(C,'id=eq.owner',{last_sync_at:stamp(),last_error:null});return json(result);
     }catch(error){report(error,'sync');const code=reason(error);await store.patch(C,'id=eq.owner',{last_error:code,...(error.status===401||code==='invalid_grant'?{status:'needs_reconnect'}:{})});return json({ok:false,reason:code});}
   }
@@ -66,14 +67,31 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         // access. Preserve the existing app identity and Calendar credentials;
         // never accept an arbitrary Google account or a domain-wide match.
         const session=randomToken();await store.insert('cos_calendar_sessions',{token_hash:await sha256(session),google_sub:calendar?.google_sub||identity.sub,expires_at:new Date(+now()+30*86400000).toISOString()});
+        if(states[0].return_challenge){
+          const destination=await issueTransfer({store,config,now,session,challenge:states[0].return_challenge,service:'gmail',returnTo:'/#/inbox'});
+          const h=new Headers({...headers,Location:destination});h.append('Set-Cookie',cleared);h.append('Set-Cookie',cookie(SESSION,session,30*86400));return new Response(null,{status:303,headers:h});
+        }
         return redirect('connected',null,[cleared,cookie(SESSION,session,30*86400)]);
       }catch(error){report(error,stage);return redirect('error',error.reason==='google_owner_mismatch'?'wrong_account':reason(error),[cleared]);}
     });
     return result.status===409?redirect('error','connection_busy',[cleared]):result;
   }
+  async function start(request,challenge=null){
+        if(!challenge&&request.headers.get('Origin')===PUBLIC_ORIGIN)return beginTransfer('gmail');
+        const state='gmail.'+randomToken(),browser=randomToken(),verifier=randomToken(48);
+        await store.remove(STATES,'expires_at=lt.'+encodeURIComponent(stamp()));
+        await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browser),verifier,...(challenge?{return_challenge:challenge}:{}),expires_at:new Date(+now()+600000).toISOString()});
+        const target=new URL(await google.authorizationUrl({state,verifier}));
+        target.searchParams.set('login_hint',config.allowedEmail.trim().toLowerCase());
+        const h=new Headers({...headers,Location:target.href,'Set-Cookie':cookie(FLOW,browser,600)});
+        return new Response(null,{status:303,headers:h});
+      }
   return async request=>{
     const url=new URL(request.url),route=url.pathname.split('/').filter(Boolean).at(-1);
     try{
+      if(request.method==='GET'&&route==='bridge-start'){
+        const challenge=url.searchParams.get('challenge');if(!validChallenge(challenge))return json({error:'invalid_state'},400);return await start(request,challenge);
+      }
       if(request.method==='GET'&&route==='callback')return await callback(request,url);
       if(route==='tick'&&request.method==='POST'){
         if(!config.cronSecret||!safeEqual(request.headers.get('Authorization')||'','Bearer '+config.cronSecret))return json({error:'unauthorized'},401);
@@ -82,28 +100,20 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
       const connection=await current();
       if(route==='status'&&request.method==='GET'){
         if(!await authorized(request,connection))return json({authenticated:false,configured:true});
-        const threads=await store.page('cos_gmail_threads','select=thread_id,subject,inbox_id,pending,last_error,updated_at,context_days,message_limit,project_id&order=updated_at.desc&limit=51');
+        const threads=await store.list('cos_gmail_threads','select=thread_id,subject,inbox_id,pending,last_error,updated_at,context_days,message_limit,project_id&order=updated_at.desc');
         const ids=threads.map(t=>t.inbox_id).filter(Boolean);
-        const inbox=ids.length?await store.page('cos_communication_inbox','select=id,status&id=in.('+ids.join(',')+')&limit=51'):[];
+        const inbox=ids.length?await store.list('cos_communication_inbox','select=id,status&id=in.('+ids.join(',')+')'):[];
         const progress={found:threads.length,imported:ids.length,queued:threads.filter(t=>t.pending).length,
           ready:inbox.filter(i=>['ready','deferred','applied'].includes(i.status)).length,
           analyzing:inbox.filter(i=>['captured','processing'].includes(i.status)).length,
           errors:inbox.filter(i=>i.status==='error').length,discovering:!!connection?.settings?.enabled&&connection?.cursor?.mode!=='history'};
-        return json({authenticated:true,progress,connection:connection?{email:connection.email,status:connection.status,last_sync_at:connection.last_sync_at,last_error:connection.last_error}:null,settings:connection?.settings||DEFAULT_SETTINGS,threads,pilot_full:threads.length>=50});
+        return json({authenticated:true,progress,connection:connection?{email:connection.email,status:connection.status,last_sync_at:connection.last_sync_at,last_error:connection.last_error}:null,settings:connection?.settings||DEFAULT_SETTINGS,threads:threads.slice(0,50),pilot_full:false});
       }
       if(!['start','settings','labels','sync','disconnect','expand','project'].includes(route))return json({error:'not_found'},404);
       if(request.method!=='POST')return json({error:'method_not_allowed'},405);
-      if(request.headers.get('Origin')!==APP_ORIGIN)return json({error:'invalid_origin'},403);
+      if(!allowedOrigin(request.headers.get('Origin')))return json({error:'invalid_origin'},403);
       if(Number(request.headers.get('Content-Length')||0)>16384)return json({error:'request_too_large'},413);
-      if(route==='start'){
-        const state='gmail.'+randomToken(),browser=randomToken(),verifier=randomToken(48);
-        await store.remove(STATES,'expires_at=lt.'+encodeURIComponent(stamp()));
-        await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browser),verifier,expires_at:new Date(+now()+600000).toISOString()});
-        const target=new URL(await google.authorizationUrl({state,verifier}));
-        target.searchParams.set('login_hint',config.allowedEmail.trim().toLowerCase());
-        const h=new Headers({...headers,Location:target.href,'Set-Cookie':cookie(FLOW,browser,600)});
-        return new Response(null,{status:303,headers:h});
-      }
+      if(route==='start')return await start(request);
       if(!await authorized(request,connection))return json({error:'unauthorized'},401);
       const raw=await request.text();if(raw.length>16384)return json({error:'request_too_large'},413);
       let data;try{data=raw?JSON.parse(raw):{}}catch{return json({error:'invalid_json'},400)}
@@ -112,8 +122,8 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         const latest=await current();
         if(!await authorized(request,latest))return json({error:'unauthorized'},401);
         if(route==='settings'){
-          const next=settings(data),old=latest.settings||DEFAULT_SETTINGS;
-          const scopeChanged=JSON.stringify([next.label_ids,next.emails])!==JSON.stringify([old.label_ids,old.emails]);
+          const old=latest.settings||DEFAULT_SETTINGS,next=settings({...old,...data});
+          const scopeChanged=JSON.stringify([next.label_ids,next.emails,next.initial_days])!==JSON.stringify([old.label_ids,old.emails,old.initial_days]);
           await store.patch(C,'id=eq.owner',{settings:next,...(scopeChanged?{cursor:{}}:{})});return json({ok:true,settings:next});
         }
         if(route==='disconnect'){

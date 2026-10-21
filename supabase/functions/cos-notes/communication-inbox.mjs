@@ -135,7 +135,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
       if(!change.meeting_date||!change.meeting_time){change.selected=false;questions.push('Уточните дату и время встречи: «'+change.text.slice(0,120)+'».');}
     }
     if(old?.deadline_at&&!dates.deadline){change.deadline_time=clockAt(old.deadline_at,timeZone).slice(11,16);}
-    if(mail){change.source_message_id=mail.message_id;change.trigger_message_id=mail.trigger_id;change.participant_email=!old||!old.participant_id||old.participant_id===mail.person?.id?mail.email:null;}
+    if(mail){change.mail_agreement=['agreed','proposed','reported'].includes(value.agreement)?value.agreement:'unknown';change.source_message_id=mail.message_id;change.trigger_message_id=mail.trigger_id;change.participant_email=!old||!old.participant_id||old.participant_id===mail.person?.id?mail.email:null;}
     if(mail?.expanded){change.selected=false;change.evidence_restored=true;}
     change.date_intent=!workDate&&!!dates.deadline;
     change.work_date_intent=workDate&&!!dates.deadline;
@@ -224,7 +224,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
   }
   async function list({status='pending',limit=50,offset=0}={}){
     if(!['pending','deferred','applied','all'].includes(status)||!Number.isSafeInteger(limit)||limit<1||limit>100||!Number.isSafeInteger(offset)||offset<0||offset>1000000)fail(400,'invalid_pagination');
-    const rows=await store.page('cos_communication_inbox','select='+FIELDS.filter(k=>k!=='applied_result').join(',')+(status==='pending'?'&status=in.(captured,processing,ready,error)':status==='all'?'':'&status=eq.'+status)+'&order=created_at.desc,id.desc&limit='+(limit+1)+'&offset='+offset);
+    const rows=await store.page('cos_communication_inbox','select='+FIELDS.filter(k=>k!=='applied_result').join(',')+(status==='pending'?'&status=in.(captured,processing,ready,error)':status==='all'?'':'&status=eq.'+status)+'&and=(or(source_meta->>delivery.is.null,source_meta->>delivery.not.in.(tasks,retired)),or(source_meta->>superseded.is.null,source_meta->>superseded.eq.false))&order=created_at.desc,id.desc&limit='+(limit+1)+'&offset='+offset);
     return {items:rows.slice(0,limit).map(row=>{const item=safeItem(row);if(item.proposal){item.proposal={...item.proposal};delete item.proposal.context;}delete item.applied_result;return item;}),nextOffset:rows.length>limit?offset+limit:null};
   }
   async function analyze(id,data={}){
@@ -292,13 +292,13 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
           const workUnchanged=change.kind==='task_update'&&baseline&&!original?.work_date_intent&&change.planned_on===original?.planned_on&&change.planned_time===original?.planned_time;
           if(!workUnchanged){task.planned_on=change.planned_on;task.planned_start_at=change.planned_on&&change.planned_time?inboxDeadlineInstant(change.planned_on,change.planned_time,proposal.time_zone||await zone()):null;task.planned_end_at=null;}
         }
-        if(change.kind==='task_create'){task.details=[change.participant_suggestion?.name&&'Участник из сообщения: '+change.participant_suggestion.name,'Из сообщения: '+change.evidence,'Источник: https://chief-of-staff-v3-live.vercel.app/#/inbox/'+item.id].filter(Boolean).join('\n');actions.push({id:change.id,kind:'task_create',task});}
+        if(change.kind==='task_create'){task.details=[proposal.mail_review_reason,change.participant_suggestion?.name&&'Участник из сообщения: '+change.participant_suggestion.name,'Из сообщения: '+change.evidence,'Источник: https://nikodim.vercel.app/#/inbox/'+item.id].filter(Boolean).join('\n');actions.push({id:change.id,kind:'task_create',task});}
         else {const patch={};for(const [key,value]of Object.entries(task)){if(JSON.stringify(value)!==JSON.stringify(baseline?.[key]??null))patch[key]=value;}if(own(patch,'next_check_on'))patch.next_check_at=null;if(!Object.keys(patch).length)continue;actions.push({id:change.id,kind:'task_update',task_id:change.task_id,version:change.task_version,patch});}
       }else if(change.kind==='meeting_create'){
         const starts_at=inboxDeadlineInstant(change.meeting_date,change.meeting_time,proposal.time_zone||await zone());
         const ends_at=new Date(Date.parse(starts_at)+change.duration_minutes*60000).toISOString();
         const person=people.find(p=>p.id===change.participant_id)?.name||change.participant_suggestion?.name;
-        const agenda=[person&&'Участник: '+person,'Из сообщения: '+change.evidence,'Источник: https://chief-of-staff-v3-live.vercel.app/#/inbox/'+item.id,
+        const agenda=[person&&'Участник: '+person,'Из сообщения: '+change.evidence,'Источник: https://nikodim.vercel.app/#/inbox/'+item.id,
           change.duration_estimated&&'Длительность 30 минут выбрана по умолчанию; в сообщении не указана.'].filter(Boolean).join('\n');
         actions.push({id:change.id,kind:'meeting_create',meeting:{title:change.text,project_id:change.project_id,starts_at,ends_at,agenda}});
       }else{
@@ -311,7 +311,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
         }
         if(brief.revision!==change.brief_revision)fail(409,'inbox_conflict');
         if(change.kind==='project_state'){if(brief.stateAssigned)fail(400,'duplicate_project_state');brief.stateAssigned=true;brief.document.current_state=change.text;}
-        else brief.document.entries.push({id:change.id,kind:change.entry_kind,text:change.text,person:people.find(p=>p.id===change.participant_id)?.name||'',review_on:change.entry_kind==='question'?change.next_check_on:null,source:'https://chief-of-staff-v3-live.vercel.app/#/inbox/'+item.id,status:'open'});
+        else brief.document.entries.push({id:change.id,kind:change.entry_kind,text:change.text,person:people.find(p=>p.id===change.participant_id)?.name||'',review_on:change.entry_kind==='question'?change.next_check_on:null,source:'https://nikodim.vercel.app/#/inbox/'+item.id,status:'open'});
       }
     }
     for(const [project_id,brief]of briefs)actions.push({id:brief.id,kind:'brief_replace',project_id,revision:brief.revision,document:validateProjectBriefDocument(brief.document)});
@@ -345,6 +345,37 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     try{return await apply(id,{revision:item.revision,request_id:item.proposal.analysis.id})}
     catch(error){const current=await get(id);if(current.item.status==='applied')return current;throw error;}
   }
+  async function deliverMail(id){
+    let {item}=await get(id);
+    if(item.status==='applied')return {item};
+    const settings=(await store.page('cos_gmail_connection','select=settings&id=eq.owner&limit=1'))[0]?.settings;
+    if(!settings?.enabled||!settings.ai_consent||!settings.auto_tasks||item.source_meta?.type!=='gmail'||
+      item.source_meta.delivery!=='tasks'||item.source_meta.superseded||!['ready','error'].includes(item.status))return {item};
+    const proposal=item.proposal,changes=proposal?.changes;
+    const safe=item.status==='ready'&&proposal?.analysis?.status==='completed'&&Array.isArray(changes)&&
+      Array.isArray(proposal.questions)&&!proposal.questions.length&&(proposal.analysis.mail_fallback===true||changes.every(c=>
+        c.kind==='task_create'&&c.selected&&!c.evidence_restored&&['agreed','reported'].includes(c.mail_agreement)&&
+        item.source_meta.new_message_ids?.includes(c.trigger_message_id)));
+    if(!safe){
+      // Never silently edit/complete existing work or accept a proposed date.
+      // A separate review task keeps uncertain mail visible in Tasks, while
+      // acknowledging this source lets later replies continue to arrive.
+      const reason=item.status==='error'?'Автоматический разбор письма не завершился.':
+        [proposal?.summary,...(proposal?.questions||[])].filter(Boolean).join('\n')||'Проверьте предложенные изменения по исходному письму.';
+      const message=item.source_meta.messages?.find(m=>item.source_meta.new_message_ids?.includes(m.id));
+      const evidence=(message?item.source_text.slice(message.start,message.end):item.source_text||'Письмо Gmail').slice(0,1800);
+      const review={version:1,summary:reason.slice(0,2000),questions:[],corrections:proposal?.corrections||[],
+        time_zone:proposal?.time_zone||await zone(),context:{tasks:[],briefs:[]},mail_review_reason:reason.slice(0,4000),
+        analysis:{...proposal?.analysis,id:uuid(),status:'completed',mail_fallback:true},changes:[{
+          id:uuid(),kind:'task_create',selected:true,text:('Разобрать письмо: '+(item.source_meta.subject||'Без темы')).slice(0,2000),
+          evidence,project_id:null,participant_id:null,direction:'internal',status:'open',deadline:null,deadline_time:null,
+          next_check_on:null,planned_on:null,planned_time:null,task_id:null,task_version:null,entry_kind:null,brief_revision:null
+        }]};
+      item=await update(item,{status:'ready',error_code:null,proposal:review});
+    }
+    try{return await apply(id,{revision:item.revision,request_id:item.proposal.analysis.id});}
+    catch(error){const current=await get(id);if(current.item.status==='applied')return current;throw error;}
+  }
   async function cancel(id,data){
     if(!object(data)||Object.keys(data).some(k=>k!=='change_id')||!UUID.test(data.change_id||''))fail(400,'invalid_request');
     await get(id);
@@ -361,5 +392,5 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     proposal.analysis={...analysis,status:'completed',recovered:true};delete proposal.analysis.result;
     return {item:await update(item,{status:'ready',error_code:null,proposal})};
   }
-  return {get,list,analyze,recover,process:item=>analyze(item.id,{revision:item.revision}),apply,autoApply,cancel,defer,audio};
+  return {get,list,analyze,recover,process:item=>analyze(item.id,{revision:item.revision}),apply,autoApply,deliverMail,cancel,defer,audio};
 }

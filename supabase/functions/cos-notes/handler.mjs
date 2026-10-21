@@ -1,3 +1,4 @@
+import {allowedOrigin} from '../cos-google-calendar/domain-bridge.mjs';
 import {ProjectBriefError, getProjectBrief, saveProjectBrief} from './project-brief.mjs';
 import {ParticipantError, createParticipant, updateParticipant} from './participants.mjs';
 import {CommunicationInboxError, createCommunicationInbox} from './communication-inbox.mjs';
@@ -268,7 +269,7 @@ export function createNotesHandler({store, now = () => new Date(), inbox = creat
       const {id} = route;
       const method = request.method;
       if (!route.methods.includes(method)) return json({error: 'method_not_allowed'}, 405);
-      if (method !== 'GET' && request.headers.get('Origin') !== APP_ORIGIN) fail(403, 'invalid_origin');
+      if (method !== 'GET' && !allowedOrigin(request.headers.get('Origin'))) fail(403, 'invalid_origin');
       await authenticate(request);
       if (route.kind === 'inboxList') {
         const allowed = new Set(['status', 'limit', 'offset']);

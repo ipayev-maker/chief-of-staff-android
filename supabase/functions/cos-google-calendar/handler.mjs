@@ -1,3 +1,4 @@
+import {PUBLIC_ORIGIN,allowedOrigin,validChallenge,beginTransfer,issueTransfer,finishTransfer} from './domain-bridge.mjs';
 import { APP_ORIGIN, randomToken, sha256, encryptSecret, decryptSecret, safeEqual } from './google.mjs';
 import { syncCalendar, projectionHash } from './sync.mjs';
 import * as projector from '../../../web/calendar/projector.mjs';
@@ -116,17 +117,18 @@ export function createHandler({store, google, config, now = () => new Date(), ru
     }
     return json({authenticated:true,connection:{email:current.email,calendarName:'Chief of Staff',timeZone:current.time_zone,status:current.status,lastSyncAt:current.last_sync_at,lastError:current.last_error},counts,issues});
   }
-  async function start(request) {
-    const form = await request.formData();
+  async function start(request, bridgeForm=null) {
+    const form = bridgeForm||await request.formData();
     const timeZone = validTimeZone(form.get('time_zone'));
     const requestedReturn = form.get('return_to');
     const returnTo = inboxReturnTo(requestedReturn);
     if (requestedReturn !== null && requestedReturn !== '' && !returnTo) return json({error:'invalid_return_to'},400);
+    if(!bridgeForm&&request.headers.get('Origin')===PUBLIC_ORIGIN)return beginTransfer('calendar',{time_zone:timeZone,return_to:returnTo});
     const state = randomToken();
     const browserSecret = randomToken();
     const verifier = randomToken(48);
     await store.remove(STATES,'expires_at=lt.' + queryValue(timestamp()));
-    await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browserSecret),verifier,time_zone:timeZone,return_to:returnTo,expires_at:new Date(now().getTime()+600000).toISOString()});
+    await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browserSecret),verifier,time_zone:timeZone,return_to:returnTo,...(bridgeForm?{return_challenge:bridgeForm.get('challenge')}:{}),expires_at:new Date(now().getTime()+600000).toISOString()});
     return redirect(await google.authorizationUrl({state,verifier}),[cookie(FLOW_COOKIE,browserSecret,600)]);
   }
   async function callback(request,url) {
@@ -178,7 +180,8 @@ export function createHandler({store, google, config, now = () => new Date(), ru
         await store.remove(SESSIONS,'expires_at=lt.' + queryValue(timestamp()));
         await store.insert(SESSIONS,{token_hash:await sha256(sessionToken),google_sub:identity.sub,expires_at:new Date(now().getTime()+SESSION_SECONDS*1000).toISOString()});
         // Durable cron performs initial import; OAuth callback remains fast.
-        return redirect(callbackLocation('connected',null,returnTo),[cleared,cookie(SESSION_COOKIE,sessionToken,SESSION_SECONDS)]);
+        const destination=states[0].return_challenge?await issueTransfer({store,config,now,session:sessionToken,challenge:states[0].return_challenge,service:'calendar',returnTo}):callbackLocation('connected',null,returnTo);
+        return redirect(destination,[cleared,cookie(SESSION_COOKIE,sessionToken,SESSION_SECONDS)]);
       } catch (error) {
         const reason = safeReason(error);
         const allowed = ['wrong_account','missing_scope','refresh_token_missing','calendar_setup_failed'];
@@ -196,11 +199,16 @@ export function createHandler({store, google, config, now = () => new Date(), ru
         if (!config.cronSecret || !safeEqual(bearer,'Bearer ' + config.cronSecret)) return json({error:'unauthorized'},401);
         return await withLock(async () => json(await synchronized(await connection())));
       }
+      if(route==='bridge-finish'&&request.method==='GET')return await finishTransfer({request,store,config,now});
+      if(route==='bridge-start'&&request.method==='GET'){
+        if(!validChallenge(url.searchParams.get('challenge')))return json({error:'invalid_state'},400);
+        return await start(request,url.searchParams);
+      }
       if (route === 'callback' && request.method === 'GET') return await callback(request,url);
       if (route === 'status' && request.method === 'GET') return await status(request);
       if (!['start','sync','disconnect'].includes(route)) return json({error:'not_found'},404);
       if (request.method !== 'POST') return json({error:'method_not_allowed'},405);
-      if (request.headers.get('Origin') !== APP_ORIGIN) return json({error:'invalid_origin'},403);
+      if (!allowedOrigin(request.headers.get('Origin'))) return json({error:'invalid_origin'},403);
       if (Number(request.headers.get('Content-Length') || 0) > 8192) return json({error:'request_too_large'},413);
       if (route === 'start') return await start(request);
       const current = await connection();
