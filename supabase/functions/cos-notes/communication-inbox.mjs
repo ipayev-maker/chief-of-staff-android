@@ -270,7 +270,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
         }catch(error){if(!corrections.length||error?.status===409)throw error;voiceFailure=/^voice_[a-z_]+$/.test(error?.safeCode||error?.code||'')?error.safeCode||error.code:'voice_unavailable';item=await update(item,{attempt_id:attempt,source_meta:{audio_error:voiceFailure}});}
       }
       const context=await contextFor(store),resolvedZone=await zone();
-      if(item.source_meta?.type==='gmail')context.gmail_people=await store.list('cos_gmail_people','select=email,participant_id&order=email.asc');
+      if(item.source_meta?.type==='gmail'){context.tasks=context.tasks.filter(t=>!/^Разобрать письмо:/u.test(t.description||''));context.gmail_people=await store.list('cos_gmail_people','select=email,participant_id&order=email.asc');}
       if(typeof model!=='function')fail(503,'analysis_unavailable');
       generated=await model({text:sourceText(item,corrections),context:modelContext(item.source_meta?.type==='gmail'?{...context,tasks:context.tasks.slice(0,100)}:context),refDate:sourceInstant(item),timeZone:resolvedZone,...(item.source_meta?.type==='gmail'?{mail:{...item.source_meta,...(item.source_meta.review_parent_id?{review_focus:item.proposal?.changes?.[0]||null}:{})}}:{})});
       const proposal=normalizeInboxProposal(generated.data,{item,context,corrections,timeZone:resolvedZone,uuid});

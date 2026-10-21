@@ -34,3 +34,10 @@ test('provider failure exposes HTTP status without response body or credentials'
  const generate=createInboxModel({openRouterKey:'private-key',fetchImpl:async()=>new Response(JSON.stringify({error:{message:'private provider details'}}),{status:429})});
  await assert.rejects(generate({text:'test',context:{},refDate:'2026-10-21T10:00:00Z',timeZone:'Europe/Moscow'}),e=>e.code==='analysis_unavailable'&&e.provider_status===429&&!e.message.includes('private'));
 });
+test('mail model context excludes legacy review placeholders while retaining real obligations',async()=>{
+ const {createCommunicationInbox}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');let row={...source('Информация.'),note_id:id,revision:1,status:'captured',proposal:{}};
+ const real={id:'22222222-2222-4222-8222-222222222222',description:'Согласовать образец',status:'open'};
+ const store={async page(table){return table==='cos_communication_inbox'?[row]:table==='cos_gmail_connection'?[{settings:{ai_consent:true}}]:[]},async list(table){return table==='commitments'?[real,{id:'33333333-3333-4333-8333-333333333333',description:'Разобрать письмо: Образец',status:'open'}]:[]},async rpc(name,args){assert.equal(name,'cos_inbox_update');row={...row,...args.p_patch,revision:row.revision+1};return {item:row}}};
+ let called=false;const model=async({context})=>{called=true;assert.deepEqual(context.tasks.map(t=>t.id),[real.id]);return {data:{summary:'Информация',questions:[],changes:[]}}};
+ const result=await createCommunicationInbox({store,model,timeZone:'Europe/Moscow'}).analyze(id,{revision:1});assert.equal(called,true);assert.equal(result.item.status,'ready');
+});
