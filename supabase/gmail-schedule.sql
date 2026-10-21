@@ -1,6 +1,6 @@
 -- Import is opt-in: this job is a no-op until the owner connects Gmail and
 -- explicitly saves a nonempty scope with enabled=true in the application.
-select cron.schedule('cos-gmail-sync','* * * * *', $job$
+select cron.schedule('cos-gmail-sync','*/15 * * * *', $job$
   select net.http_post(
     url:='https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-google-calendar/gmail/tick',
     headers:=jsonb_build_object('Content-Type','application/json','Authorization','Bearer '||(s.decrypted_secret::jsonb->>'cronSecret')),

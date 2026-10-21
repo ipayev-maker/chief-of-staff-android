@@ -1,13 +1,13 @@
 // No mailbox-wide body fetch: select eligible message IDs from metadata first.
 export const GMAIL_SCOPES = Object.freeze(['openid','email','https://www.googleapis.com/auth/gmail.readonly']);
-export const DEFAULT_SETTINGS = Object.freeze({label_ids:[],emails:[],enabled:false,ai_consent:false,initial_days:30,context_days:90,message_limit:10,pilot_limit:50});
+export const DEFAULT_SETTINGS = Object.freeze({label_ids:[],emails:[],enabled:false,ai_consent:false,auto_tasks:false,initial_days:7,context_days:7,message_limit:10});
 export const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 export const email = value => typeof value === 'string' && /^[a-zA-Z0-9.!#$%&'*+\-/=?^_`{|}~]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/.test(value) ? value.toLowerCase() : null;
 export function settings(value) {
   if (!value || !Array.isArray(value.label_ids) || !Array.isArray(value.emails) || value.label_ids.length>20 || value.emails.length>50 ||
       value.label_ids.some(id=>!validId(id)||['SPAM','TRASH','DRAFT'].includes(id)) || value.emails.some(v=>!email(v)) ||
-      typeof value.enabled!=='boolean' || typeof value.ai_consent!=='boolean') throw Error('invalid_settings');
-  const result={...DEFAULT_SETTINGS,label_ids:[...new Set(value.label_ids)],emails:[...new Set(value.emails.map(email))],enabled:value.enabled,ai_consent:value.ai_consent};
+      typeof value.enabled!=='boolean' || typeof value.ai_consent!=='boolean' || value.auto_tasks!==undefined&&typeof value.auto_tasks!=='boolean') throw Error('invalid_settings');
+  const result={...DEFAULT_SETTINGS,label_ids:[...new Set(value.label_ids)],emails:[...new Set(value.emails.map(email))],enabled:value.enabled,ai_consent:value.ai_consent,auto_tasks:value.auto_tasks===true};
   if(result.enabled&&!result.label_ids.length&&!result.emails.length)throw Error('scope_required');
   return result;
 }
@@ -24,7 +24,7 @@ export function searchQuery(config,now=new Date()){
   return `after:${Math.floor((+now-config.initial_days*86400000)/1000)} -in:spam -in:trash -in:drafts`;
 }
 export function selectMessages(messages,{now=new Date(),contextDays=90,limit=10}={}){
-  if(![90,180].includes(contextDays)||!Number.isInteger(limit)||limit<10||limit>50)throw Error('invalid_depth');
+  if(![7,90,180].includes(contextDays)||!Number.isInteger(limit)||limit<10||limit>50)throw Error('invalid_depth');
   const eligible=messages.filter(m=>validId(m.id)&&Number.isFinite(Number(m.internalDate))&&Number(m.internalDate)>=+now-contextDays*86400000&&Number(m.internalDate)<=+now+300000&&!(m.labelIds||[]).some(l=>['SPAM','TRASH','DRAFT'].includes(l)))
     .sort((a,b)=>Number(a.internalDate)-Number(b.internalDate)||a.id.localeCompare(b.id));
   return {selected:eligible.slice(-limit),eligible:eligible.length,total:messages.length,omitted:messages.length-Math.min(limit,eligible.length)};

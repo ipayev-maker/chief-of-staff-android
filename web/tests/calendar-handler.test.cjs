@@ -195,3 +195,18 @@ test('absent, legacy or invalid stored return routes retain ordinary calendar re
     assert.equal(response.headers.get('Location'),ORIGIN+'/?calendar=connected');
   }
 });
+
+test('Nikodim login returns through the registered callback with a browser-bound single-use handoff',async()=>{
+ const f=await fixture(),origin='https://nikodim.vercel.app';
+ const start=await f.handler(new Request(origin+'/api/google-calendar/start',{method:'POST',headers:{Origin:origin},body:new URLSearchParams({time_zone:'Europe/Moscow',return_to:'/#/inbox'})}));
+ assert.equal(start.status,303);const bridgeUrl=start.headers.get('Location'),transferCookie=start.headers.getSetCookie()[0].split(';')[0];assert.equal(new URL(bridgeUrl).origin,ORIGIN);
+ const bridge=await f.handler(new Request(bridgeUrl));assert.equal(bridge.status,303);const state=new URL(bridge.headers.get('Location')).searchParams.get('state'),flow=bridge.headers.getSetCookie()[0].split(';')[0];
+ const completed=await f.finish({state,flow});const finishUrl=completed.headers.get('Location');assert.equal(new URL(finishUrl).origin,origin);assert.match(new URL(finishUrl).pathname,/bridge-finish$/);
+ const wrongBrowser=await f.handler(new Request(finishUrl,{headers:{Cookie:'__Host-cos-auth-transfer=wrong'}}));assert.match(wrongBrowser.headers.get('Location'),/invalid_state/);assert.equal(f.table('cos_auth_transfers').length,1);
+ const finish=await f.handler(new Request(finishUrl,{headers:{Cookie:transferCookie}}));assert.equal(finish.headers.get('Location'),origin+'/?calendar=connected#/inbox');assert.ok(finish.headers.getSetCookie().some(c=>c.startsWith('__Host-cos-calendar-session=')));assert.equal(f.table('cos_auth_transfers').length,0);
+ const replay=await f.handler(new Request(finishUrl,{headers:{Cookie:transferCookie}}));assert.match(replay.headers.get('Location'),/invalid_state/);
+ assert.equal(f.calls.exchange,1);assert.doesNotMatch(finishUrl,/synthetic-access|synthetic-refresh/);
+});
+test('Nikodim transfer cannot be initiated by an unrelated origin or invalid challenge',async()=>{
+ const f=await fixture();const response=await f.handler(new Request(BASE+'bridge-start?challenge=bad&time_zone=Europe/Moscow'));assert.equal(response.status,400);assert.equal(f.data.size,0);
+});

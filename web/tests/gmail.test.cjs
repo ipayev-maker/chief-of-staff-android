@@ -25,7 +25,7 @@ test('body selection uses 90-day boundary and latest ten incl sent, not all thre
  assert.throws(()=>m.selectMessages(rows,{contextDays:365}),/invalid_depth/);
 });
 test('Gmail search uses epoch seconds, not Gmail PST date strings',async()=>{
- const m=await import(base+'mail.mjs');const q=m.searchQuery({...m.DEFAULT_SETTINGS,emails:['a@example.com']},NOW);assert.match(q,/after:\d+ -in:spam -in:trash -in:drafts/);assert.ok(q.includes(String(Math.floor((+NOW-30*86400000)/1000))));
+ const m=await import(base+'mail.mjs');const q=m.searchQuery({...m.DEFAULT_SETTINGS,emails:['a@example.com']},NOW);assert.match(q,/after:\d+ -in:spam -in:trash -in:drafts/);assert.ok(q.includes(String(Math.floor((+NOW-7*86400000)/1000))));
 });
 test('MIME keeps one alternative, ignores attachments and never returns executable HTML',async()=>{
  const {messageText}=await import(base+'mail.mjs');const body=message('1',NOW);body.payload={mimeType:'multipart/mixed',parts:[{mimeType:'multipart/alternative',parts:[{mimeType:'text/plain',body:{data:encode('Ответ\n> цитата\nВстроенный ответ')}},{mimeType:'text/html',body:{data:encode('<script>bad()</script><p>Duplicate</p>')}}]},{mimeType:'application/pdf',filename:'offer.pdf',body:{data:encode('SECRET FILE CONTENT')}}]};
@@ -66,7 +66,7 @@ test('Gmail handler denies reads and CSRF writes without owner session',async()=
  const {createGmailHandler}=await import(base+'handler.mjs');const store=memory({cos_gmail_connection:[{id:'owner',google_sub:'owner'}]});const h=createGmailHandler({store,config:{cronSecret:'cron'},google:{},now:()=>NOW});const status=await h(new Request('https://app.test/gmail/status'));assert.deepEqual(await status.json(),{authenticated:false,configured:true});assert.equal((await h(new Request('https://app.test/gmail/settings',{method:'POST',headers:{Origin:'https://evil.invalid'},body:'{}'}))).status,403);assert.equal((await h(new Request('https://app.test/gmail/tick',{method:'POST'}))).status,401);assert.equal(store.calls.some(c=>c[1]==='cos_gmail_threads'),false);
 });
 test('Gmail settings UI escapes labels and keeps AI opt-in unchecked by default',()=>{
- const ui=require('../gmail.js');const html=ui.render({authenticated:true,connection:{email:'owner@example.com',status:'connected'},settings:{label_ids:[],emails:[],enabled:false,ai_consent:false}},[{id:'Label_1',name:'<script>alert(1)</script>'}]);assert.doesNotMatch(html,/<script>/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/name="ai" checked/);assert.match(html,/OpenRouter/);assert.match(html,/90 дней/);
+ const ui=require('../gmail.js');const html=ui.render({authenticated:true,connection:{email:'owner@example.com',status:'connected'},settings:{label_ids:[],emails:[],enabled:false,ai_consent:false}},[{id:'Label_1',name:'<script>alert(1)</script>'}]);assert.doesNotMatch(html,/<script>/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/name="ai" checked/);assert.match(html,/OpenRouter/);assert.match(html,/7 дней/);assert.match(html,/каждые 15 минут/);
 });
 test('mail schema keeps tokens and source bodies private and uses invoker RPCs',()=>{
  const sql=fs.readFileSync(path.join(__dirname,'../../supabase/gmail-schema.sql'),'utf8');assert.doesNotMatch(sql,/security definer/i);for(const t of ['connection','oauth_states','lock','threads','people'])assert.ok(sql.includes(`alter table public.cos_gmail_${t} enable row level security`));assert.match(sql,/from public,anon,authenticated/);
@@ -266,4 +266,58 @@ test('quote markers and omissions are restored in evidence and trigger only as u
  const quote='Андрей, оплаты от вас не было. Мы не успеем сегодня переместить заказ.';
  const result=restoreMailEvidence({source_message_id:'a',evidence:quote,trigger_evidence:quote},item);
  assert.equal(result.evidence,source.slice(2));assert.equal(result.trigger_evidence,source.slice(2));assert.equal(mailEvidence(result,item,{}).expanded,true);
+});
+
+test('51st thread is queued and history advances only after durable discovery',async()=>{
+ const {discover}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');
+ const connection={id:'owner',settings:{...m.DEFAULT_SETTINGS,label_ids:['Label_work']},cursor:{mode:'candidates',pending_ids:['thread51'],next_cursor:{mode:'history',history_id:'2'}}};
+ const store=memory({cos_gmail_connection:[connection],cos_gmail_threads:Array.from({length:50},(_,i)=>({thread_id:'thread'+i,pending:false}))});
+ await discover({store,connection,mail:{thread:async()=>({messages:[message('new',NOW)]})},now:()=>NOW});
+ assert.equal(store.db.cos_gmail_threads.length,51);assert.equal(store.db.cos_gmail_threads.at(-1).thread_id,'thread51');assert.equal(store.db.cos_gmail_connection[0].cursor.history_id,'2');
+});
+test('automatic import reads only seven days and drains every unread message in chronological batches',async()=>{
+ const {importThread}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');
+ const rows=[message('too-old',new Date(+NOW-7*86400000-1)),...Array.from({length:12},(_,i)=>message('m'+i,new Date(+NOW-86400000+i*60000),'x'.repeat(10000)))];
+ const thread={thread_id:'thread1',context_days:90,message_limit:10,processed_ids:[]},read=[],newIds=[];
+ const store=memory({cos_gmail_threads:[thread]});
+ store.rpc=async(name,args)=>{assert.equal(name,'cos_gmail_capture');newIds.push(...args.p_meta.new_message_ids);assert.equal(args.p_meta.context_days,7);assert.equal(args.p_meta.delivery,'tasks');assert.deepEqual(args.p_message_ids,args.p_meta.messages.map(m=>m.id));thread.processed_ids.push(...args.p_meta.new_message_ids);return {duplicate:false,item:{}}};
+ for(let i=0;i<5;i++)await importThread({store,mail:{thread:async()=>({messages:rows}),message:async id=>{read.push(id);return rows.find(m=>m.id===id)}},connection:{email:'owner@example.com',settings:{...m.DEFAULT_SETTINGS,auto_tasks:true,label_ids:['Label_work']}},thread,now:()=>NOW});
+ assert.equal(read.includes('too-old'),false);assert.deepEqual(newIds,rows.slice(1).map(m=>m.id));assert.equal(new Set(newIds).size,12);
+});
+async function deliveryFixture({changes=[],questions=[],status='ready',auto=true}={}){
+ const {createCommunicationInbox}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');
+ const id='11111111-1111-4111-8111-111111111111',analysisId='22222222-2222-4222-8222-222222222222';
+ const item={id,revision:1,status,source_text:'Пришлю образец завтра.',source_meta:{type:'gmail',delivery:'tasks',subject:'Образец',new_message_ids:['new'],messages:[{id:'new',start:0,end:22}]},proposal:{version:1,summary:'Образец',questions,changes,context:{tasks:[],briefs:[]},time_zone:'Europe/Moscow',analysis:{id:analysisId,status:'completed'}}};
+ const store=memory({cos_communication_inbox:[item],cos_gmail_connection:[{id:'owner',settings:{enabled:true,ai_consent:true,auto_tasks:auto}}]});const actions=[];
+ store.rpc=async(name,args)=>{const row=store.db.cos_communication_inbox[0];assert.equal(args.p_revision,row.revision);if(name==='cos_inbox_update')Object.assign(row,args.p_patch,{revision:row.revision+1});else if(name==='cos_inbox_apply'){actions.push(...args.p_actions);row.status='applied';row.revision++;}else throw Error(name);return {item:clone(row)}};
+ return {inbox:createCommunicationInbox({store,timeZone:'Europe/Moscow'}),store,actions,id};
+}
+const safeMailTask=()=>({id:'33333333-3333-4333-8333-333333333333',kind:'task_create',selected:true,text:'Получить образец',evidence:'Пришлю образец завтра.',project_id:null,participant_id:null,deadline:'2026-10-21',deadline_time:null,next_check_on:null,task_id:null,task_version:null,direction:'to_me',status:'open',entry_kind:null,brief_revision:null,mail_agreement:'agreed',trigger_message_id:'new'});
+test('clear Gmail action creates task immediately and retry does not create another',async()=>{
+ const f=await deliveryFixture({changes:[safeMailTask()]});await f.inbox.deliverMail(f.id);await f.inbox.deliverMail(f.id);assert.equal(f.actions.length,1);assert.equal(f.actions[0].task.description,'Получить образец');assert.equal(f.actions[0].task.deadline,'2026-10-21');assert.match(f.actions[0].task.details,/nikodim.vercel.app/);
+});
+test('uncertain mail, failed analysis and existing-task updates become one undated review task',async()=>{
+ for(const options of [{changes:[{...safeMailTask(),mail_agreement:'proposed'}]},{changes:[{...safeMailTask(),kind:'task_update'}]},{changes:[{...safeMailTask(),evidence_restored:true}]},{questions:['Кто согласовал?']},{status:'error'}]){
+ const f=await deliveryFixture(options);await f.inbox.deliverMail(f.id);await f.inbox.deliverMail(f.id);assert.equal(f.actions.length,1);assert.equal(f.actions[0].kind,'task_create');assert.match(f.actions[0].task.description,/^Разобрать письмо:/);assert.equal(f.actions[0].task.deadline,null);assert.equal(f.actions[0].task.participant_id,null);}
+});
+test('information-only mail is acknowledged with no task; disabled delivery never mutates',async()=>{
+ const info=await deliveryFixture();await info.inbox.deliverMail(info.id);assert.equal(info.actions.length,0);assert.equal(info.store.db.cos_communication_inbox[0].status,'applied');
+ const paused=await deliveryFixture({auto:false,changes:[safeMailTask()]});await paused.inbox.deliverMail(paused.id);assert.equal(paused.store.db.cos_communication_inbox[0].status,'ready');assert.equal(paused.actions.length,0);
+});
+test('weekly settings preserve task delivery and do not accept arbitrary reading depth',async()=>{
+ const m=await import(base+'mail.mjs'),s=m.settings({...m.DEFAULT_SETTINGS,auto_tasks:true,context_days:180,initial_days:365});assert.equal(s.auto_tasks,true);assert.equal(s.context_days,7);assert.equal(s.initial_days,7);assert.equal(s.pilot_limit,undefined);
+});
+
+test('Gmail login on Nikodim also completes through the existing callback and personal app identity',async()=>{
+ const {createGmailHandler}=await import(base+'handler.mjs'),{createHandler}=await import('../../supabase/functions/cos-google-calendar/handler.mjs'),{APP_ORIGIN}=await import('../../supabase/functions/cos-google-calendar/google.mjs');
+ const origin='https://nikodim.vercel.app',store=memory({cos_calendar_connection:[{id:'owner',google_sub:'personal'}]});let auth;
+ const config={allowedEmail:'work@example.com',tokenKey:Buffer.alloc(32,7).toString('base64')};
+ const google={authorizationUrl:async args=>{auth=args;return 'https://accounts.google.com/synthetic'},exchangeCode:async()=>({access_token:'test-access',refresh_token:'test-refresh'}),userInfo:async()=>({sub:'work',email:'work@example.com',email_verified:true})};
+ const h=createGmailHandler({store,google,config,now:()=>NOW});
+ const start=await h(new Request(origin+'/api/gmail/start',{method:'POST',headers:{Origin:origin}}));const transferCookie=start.headers.getSetCookie()[0].split(';')[0];
+ const bridge=await h(new Request(start.headers.get('Location')));assert.equal(new URL(bridge.headers.get('Location')).searchParams.get('login_hint'),'work@example.com');
+ const callback=await h(new Request(APP_ORIGIN+'/api/google-calendar/callback?state='+auth.state+'&code=test',{headers:{Cookie:bridge.headers.getSetCookie()[0].split(';')[0]}}));
+ const calendar=createHandler({store,google:{},config,now:()=>NOW});const finish=await calendar(new Request(callback.headers.get('Location'),{headers:{Cookie:transferCookie}}));
+ assert.equal(finish.headers.get('Location'),origin+'/?gmail=connected#/inbox');assert.equal(store.db.cos_calendar_sessions[0].google_sub,'personal');assert.equal(store.db.cos_auth_transfers.length,0);
+ const Cookie=finish.headers.getSetCookie().find(c=>c.startsWith('__Host-cos-calendar-session=')).split(';')[0];assert.equal((await (await h(new Request(origin+'/api/gmail/status',{headers:{Cookie}}))).json()).authenticated,true);
 });
