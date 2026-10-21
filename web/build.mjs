@@ -14,7 +14,7 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
-for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css', 'gmail.js', 'gmail.css']) {
+for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css', 'gmail.js', 'gmail.css', 'mail-reader.js', 'mail-reader.css']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
 // Same-origin PDF renderer and worker; private documents never go to an external viewer.

@@ -371,7 +371,9 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
       item=await update(item,{status:'ready',proposal,error_code:null});
     }
     if(item.status!=='ready'||item.proposal?.analysis?.status!=='completed')return {item};
-    const {automatic,reviews}=splitMailProposal(item),original=item.proposal;
+    const split=splitMailProposal(item),original=item.proposal;
+    const automatic=settings.review_before_create===true?[]:split.automatic;
+    const reviews=settings.review_before_create===true?[...split.automatic.map(c=>({...c,mail_review_reason:c.mail_review_reason||'Предложение по письму — подтвердите действие.'})),...split.reviews]:split.reviews;
     const actions=await compile(item,{...original,changes:automatic});
     const pending=reviews.map(change=>({id:change.id,proposal:{...original,summary:change.mail_review_reason,questions:[],changes:[change]}}));
     if(!original.changes?.length&&original.questions?.length||original.questions?.some(q=>q.startsWith('Часть предложений'))){

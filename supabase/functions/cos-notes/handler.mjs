@@ -59,7 +59,7 @@ function resource(url) {
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
   if (path === 'inbox') return {kind: 'inboxList', methods: ['GET']};
-  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel))?$/.exec(path);
+  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel|deliverMail))?$/.exec(path);
   if (inbox) return {kind: 'inbox', id: resourceUuid(inbox[1]), action: inbox[2] || 'get', methods: [!inbox[2] || inbox[2] === 'audio' ? 'GET' : 'POST']};
   if (path === 'participants') return {kind: 'participants', methods: ['POST']};
   let parts = /^participants\/([^/]+)$/.exec(path);
