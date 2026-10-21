@@ -110,7 +110,7 @@ export async function syncMail({store,mail,connection,now=()=>new Date(),analyze
     if(!automatic||!connection.settings.ai_consent||!deliver)return;
     const rows=await store.page('cos_communication_inbox','select=id&source_meta->>delivery=eq.tasks&status=in.(ready,error)&order=created_at.asc&limit=20');
     const results=await Promise.allSettled(rows.map(row=>deliver(row)));
-    for(const result of results){if(result.status==='fulfilled'&&result.value?.item?.status==='applied')delivered++;else delivery_errors++;}
+    for(const result of results){if(result.status==='fulfilled'&&result.value?.item?.status==='applied')delivered++;else if(result.status==='rejected')delivery_errors++;}
   };
   await deliverReady();
   let found={queued:0},current=connection;
@@ -143,11 +143,11 @@ export async function syncMail({store,mail,connection,now=()=>new Date(),analyze
       recovered=repaired.filter(r=>r.status==='fulfilled'&&r.value?.item?.status==='ready').length;
     }
     if(analyze){
-      // One automatic retry for invalid/temporary analysis, in a later tick.
+      // Up to three attempts, at least fifteen minutes apart; serial provider calls.
       // Never loop paid model calls indefinitely, and leave slots for new mail.
-      const retry=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail'+sourceFilter+'&status=eq.error&error_code=in.(invalid_analysis,analysis_unavailable)&or=(proposal->analysis->>attempts.is.null,proposal->analysis->>attempts.eq.1)&order=updated_at.asc&limit=2');
-      const captured=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail'+sourceFilter+'&status=eq.captured&order=created_at.asc&limit='+(5-retry.length));
-      const results=await Promise.allSettled([...retry,...captured].map(item=>analyze(item)));
+      const retry=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail'+sourceFilter+'&status=eq.error&error_code=in.(invalid_analysis,analysis_unavailable)&and=(or(proposal->analysis->>attempts.is.null,proposal->analysis->>attempts.lt.3),or(proposal->analysis->>retry_after.is.null,proposal->analysis->>retry_after.lte.'+encodeURIComponent(now().toISOString())+'))&order=updated_at.asc&limit=1');
+      const captured=await store.page('cos_communication_inbox','select=id,revision&source_meta->>type=eq.gmail'+sourceFilter+'&status=eq.captured&order=created_at.asc&limit='+(2-retry.length));
+      const results=[];for(const item of [...retry,...captured]){try{results.push({status:'fulfilled',value:await analyze(item)})}catch(reason){results.push({status:'rejected',reason})}}
       for(const result of results){if(result.status==='fulfilled'&&result.value?.item?.status==='ready')analyzed++;else analysis_errors++;}
     }
   }

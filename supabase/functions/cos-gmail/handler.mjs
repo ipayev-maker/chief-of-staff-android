@@ -43,6 +43,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
       // Owner-requested reload runs with the backend's real service identity,
       // preserving the note-deletion guard and atomic processed-ID receipts.
       if(connection.settings.reset_week===true){await store.rpc('cos_gmail_reset_week',{});connection=await current();}
+      if(connection.settings.hybrid_backfill===true){await store.rpc('cos_gmail_prepare_hybrid_backfill',{});connection=await current();}
       const result=await syncMail({store,mail:await mail(connection),connection,now,analyze,recover,deliver});
       await store.patch(C,'id=eq.owner',{last_sync_at:stamp(),last_error:null});return json(result);
     }catch(error){report(error,'sync');const code=reason(error);await store.patch(C,'id=eq.owner',{last_error:code,...(error.status===401||code==='invalid_grant'?{status:'needs_reconnect'}:{})});return json({ok:false,reason:code});}

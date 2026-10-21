@@ -61,3 +61,27 @@ schema or backend deployment is required.
 Regression coverage: legacy recognition, order/filter placement, no duplicate
 rows, escaping, source deep link, persisted ignore/restore, stale-version and
 network errors, duplicate clicks, and active-timer protection.
+
+
+### 3.20.0 — Mixed automatic delivery
+
+Each grounded action is assessed independently. Direct requests to the owner,
+owner promises and promises from others become tasks/expectations when the
+new-message evidence, responsibility and direct recipient/sender agree. Missing
+optional project/person/date does not block creation. Quoted history, CC-only
+responsibility, updates and meetings require explicit review. Proposed dates are
+kept as suggestions and do not silently become deadlines.
+
+`cos_gmail_deliver_hybrid` applies new tasks and creates one review item per
+uncertain action atomically. Review children share the original immutable note;
+a partial unique index preserves one primary capture per note. Existing owner
+session/CSRF checks and service-only RPCs remain in force. Each suggestion uses
+the existing revisioned apply/defer flow, with restore support. Technical errors
+receive three attempts spaced by at least 15 minutes, with at most two serial
+analyses per tick. Exhausted failures remain technical review items, never fake
+business tasks. Safe provider HTTP status is retained, not response bodies.
+
+The one-time `hybrid_backfill` setting queues only untouched open legacy fallback
+tasks. Original apply receipts and processed Gmail IDs remain intact. Replacement
+rechecks task version and active timers under a transaction lock. Edited,
+completed, ignored or deleted tasks are preserved. No Gmail message is modified.

@@ -7,7 +7,7 @@ function message(id,date,text='Пришлю образец завтра.',from='
 const clone=v=>JSON.parse(JSON.stringify(v));
 function memory(initial={}){
  const db=clone(initial),calls=[];
- const matching=(table,q)=>{const params=new URLSearchParams(q);let rows=[...(db[table]||[])];const field=(r,k)=>k.split(/->>?/).reduce((value,key)=>value?.[key],r);for(const [k,v]of params){if(['select','limit','order','offset'].includes(k))continue;if(k==='or'){rows=rows.filter(r=>v.slice(1,-1).split(',').some(condition=>condition.endsWith('.is.null')?field(r,condition.slice(0,-8))==null:condition.endsWith('.eq.1')&&String(field(r,condition.slice(0,-5)))==='1'));continue;}if(v.startsWith('eq.'))rows=rows.filter(r=>String(field(r,k))===v.slice(3));if(v.startsWith('gt.'))rows=rows.filter(r=>field(r,k)>v.slice(3));if(v.startsWith('in.'))rows=rows.filter(r=>v.slice(4,-1).split(',').includes(String(field(r,k))));}return rows.slice(0,Number(params.get('limit')||1000));};
+ const matching=(table,q)=>{const params=new URLSearchParams(q);let rows=[...(db[table]||[])];const field=(r,k)=>k.split(/->>?/).reduce((value,key)=>value?.[key],r);for(const [k,v]of params){if(['select','limit','order','offset'].includes(k))continue;if(k==='and'&&v.includes('retry_after')){const date=decodeURIComponent(v.match(/retry_after\.lte\.([^)]*)/)?.[1]||'');rows=rows.filter(r=>(field(r,'proposal->analysis->attempts')==null||field(r,'proposal->analysis->attempts')<3)&&(!field(r,'proposal->analysis->retry_after')||field(r,'proposal->analysis->retry_after')<=date));continue;}if(k==='or'){rows=rows.filter(r=>v.slice(1,-1).split(',').some(condition=>condition.endsWith('.is.null')?field(r,condition.slice(0,-8))==null:condition.endsWith('.eq.1')&&String(field(r,condition.slice(0,-5)))==='1'));continue;}if(v.startsWith('eq.'))rows=rows.filter(r=>String(field(r,k))===v.slice(3));if(v.startsWith('gt.'))rows=rows.filter(r=>field(r,k)>v.slice(3));if(v.startsWith('in.'))rows=rows.filter(r=>v.slice(4,-1).split(',').includes(String(field(r,k))));}return rows.slice(0,Number(params.get('limit')||1000));};
  return {db,calls,async page(t,q){calls.push(['page',t,q]);return clone(matching(t,q))},async list(t,q){return this.page(t,q)},async insert(t,v){calls.push(['insert',t]);(db[t]??=[]).push(clone(v));return clone(v)},async patch(t,q,v){calls.push(['patch',t,clone(v)]);const rows=matching(t,q);for(const r of rows)Object.assign(r,clone(v));return clone(rows)},async upsert(t,v,key){const r=(db[t]||[]).find(r=>r[key]===v[key]);if(r){Object.assign(r,clone(v));return clone(r)}return this.insert(t,v)},async remove(t,q){const rows=matching(t,q);db[t]=(db[t]||[]).filter(r=>!rows.includes(r));return clone(rows)},async rpc(name,args){calls.push(['rpc',name,clone(args)]);if(name==='cos_gmail_claim_lock')return true;if(name==='cos_gmail_release_lock')return null;if(name==='cos_gmail_capture')return {item:{id:'11111111-1111-4111-8111-111111111111',revision:1},duplicate:false};throw Error(name)}};
 }
 test('empty scope fails closed; settings reject search operators and broad domains',async()=>{
@@ -212,7 +212,7 @@ test('sync captures five queued threads despite one analysis error, and drains s
  store.rpc=async(name,args)=>{assert.equal(name,'cos_gmail_capture');const item={id:args.p_thread_id,revision:1,status:'captured'};store.db.cos_communication_inbox.push(item);Object.assign(store.db.cos_gmail_threads.find(t=>t.thread_id===args.p_thread_id),{pending:false,inbox_id:item.id,message_ids:args.p_message_ids});return {item,duplicate:false}};
  const mail={get:async()=>({historyId:'2',history:[]}),thread:async id=>({messages:[{...message(id,NOW),threadId:id}]}),message:async id=>({...message(id,NOW),threadId:id})};
  let calls=0;const first=await syncMail({store,mail,connection,now:()=>NOW,analyze:async item=>{calls++;const row=store.db.cos_communication_inbox.find(i=>i.id===item.id);row.status=calls===1?'error':'ready';return {item:row}}});
- assert.equal(first.imported,5);assert.equal(first.analyzed,4);assert.equal(first.analysis_errors,1);assert.equal(store.db.cos_gmail_threads.filter(t=>t.pending).length,2);assert.equal(calls,5);
+ assert.equal(first.imported,5);assert.equal(first.analyzed,1);assert.equal(first.analysis_errors,1);assert.equal(store.db.cos_gmail_threads.filter(t=>t.pending).length,2);assert.equal(calls,2);
  const second=await syncMail({store,mail,connection,now:()=>NOW,analyze:async item=>{store.db.cos_communication_inbox.find(i=>i.id===item.id).status='ready';return {item:{status:'ready'}}}});
  assert.equal(second.imported,2);assert.equal(second.analyzed,2);assert.equal(store.db.cos_gmail_threads.filter(t=>t.pending).length,0);
 });
@@ -224,17 +224,17 @@ test('Gmail progress distinguishes discovery, import and analysis; truncated tex
  const html=inbox.renderDetail(inbox.createSession(item));assert.match(html,/Длинный текст письма сокращён/);assert.doesNotMatch(html,/Добавить 10 писем/);
 });
 
-test('automatic retry is bounded to two slots and skips second failures, preserving capacity for new mail',async()=>{
+test('automatic retry is bounded, delayed and reserves capacity for new mail',async()=>{
  const {syncMail}=await import(base+'sync.mjs'),m=await import(base+'mail.mjs');
  const connection={id:'owner',status:'connected',settings:{...m.DEFAULT_SETTINGS,enabled:true,ai_consent:true,label_ids:['Label_work']},cursor:{mode:'history',history_id:'1'}};
- const rows=[{id:'old-error',status:'error',error_code:'invalid_analysis'},...Array.from({length:4},(_,i)=>({id:'error'+i,status:'error',error_code:'invalid_analysis',proposal:{analysis:{attempts:i===0?2:1}}})),...Array.from({length:4},(_,i)=>({id:'new'+i,status:'captured'}))].map(r=>({...r,revision:1,source_meta:{type:'gmail'}}));
+ const rows=[{id:'old-error',status:'error',error_code:'invalid_analysis'},...Array.from({length:4},(_,i)=>({id:'error'+i,status:'error',error_code:'invalid_analysis',proposal:{analysis:{attempts:i===0?3:1}}})),...Array.from({length:4},(_,i)=>({id:'new'+i,status:'captured'}))].map(r=>({...r,revision:1,source_meta:{type:'gmail'}}));
  const store=memory({cos_gmail_connection:[connection],cos_communication_inbox:rows});const calls=[];
- const analyze=async item=>{calls.push(item.id);const row=store.db.cos_communication_inbox.find(r=>r.id===item.id);row.status='error';row.error_code='invalid_analysis';row.proposal={analysis:{attempts:2}};return {item:row}};
+ const analyze=async item=>{calls.push(item.id);const row=store.db.cos_communication_inbox.find(r=>r.id===item.id);row.status='error';row.error_code='invalid_analysis';row.proposal={analysis:{attempts:2,retry_after:new Date(+NOW+15*60000).toISOString()}};return {item:row}};
  await syncMail({store,mail:{get:async()=>({historyId:'2',history:[]})},connection,analyze,now:()=>NOW});
- assert.deepEqual(calls,['old-error','error1','new0','new1','new2']);
+ assert.deepEqual(calls,['old-error','new0']);
  assert.equal(calls.includes('error0'),false);
  calls.length=0;await syncMail({store,mail:{get:async()=>({historyId:'2',history:[]})},connection,analyze,now:()=>NOW});
- assert.deepEqual(calls,['error2','error3','new3']);
+ assert.deepEqual(calls,['error1','new1']);
 });
 
 test('omitted sentences are restored verbatim but force explicit review and no inferred task date',async()=>{
@@ -287,18 +287,26 @@ test('automatic import reads only seven days and drains every unread message in 
 async function deliveryFixture({changes=[],questions=[],status='ready',auto=true}={}){
  const {createCommunicationInbox}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');
  const id='11111111-1111-4111-8111-111111111111',analysisId='22222222-2222-4222-8222-222222222222';
- const item={id,revision:1,status,source_text:'Пришлю образец завтра.',source_meta:{type:'gmail',delivery:'tasks',subject:'Образец',new_message_ids:['new'],messages:[{id:'new',start:0,end:22}]},proposal:{version:1,summary:'Образец',questions,changes,context:{tasks:[],briefs:[]},time_zone:'Europe/Moscow',analysis:{id:analysisId,status:'completed'}}};
- const store=memory({cos_communication_inbox:[item],cos_gmail_connection:[{id:'owner',settings:{enabled:true,ai_consent:true,auto_tasks:auto}}]});const actions=[];
- store.rpc=async(name,args)=>{const row=store.db.cos_communication_inbox[0];assert.equal(args.p_revision,row.revision);if(name==='cos_inbox_update')Object.assign(row,args.p_patch,{revision:row.revision+1});else if(name==='cos_inbox_apply'){actions.push(...args.p_actions);row.status='applied';row.revision++;}else throw Error(name);return {item:clone(row)}};
- return {inbox:createCommunicationInbox({store,timeZone:'Europe/Moscow'}),store,actions,id};
+ const source_text='Письмо new · '+NOW.toISOString()+'\nОт: Антон <anton@example.com>\nКому: owner@example.com\nТема: Образец\nПришлю образец завтра.';
+ const item={id,revision:1,status,source_text,source_meta:{owner_email:'owner@example.com',type:'gmail',delivery:'tasks',subject:'Образец',new_message_ids:['new'],messages:[{id:'new',email:'anton@example.com',start:0,end:source_text.length}]},proposal:{version:1,summary:'Образец',questions,changes,context:{tasks:[],briefs:[]},time_zone:'Europe/Moscow',analysis:{id:analysisId,status:'completed'}}};
+ const store=memory({cos_communication_inbox:[item],cos_gmail_connection:[{id:'owner',settings:{enabled:true,ai_consent:true,auto_tasks:auto}}]});const actions=[],reviews=[];
+ store.rpc=async(name,args)=>{const row=store.db.cos_communication_inbox[0];assert.equal(args.p_revision,row.revision);if(name==='cos_inbox_update')Object.assign(row,args.p_patch,{revision:row.revision+1});else if(name==='cos_gmail_deliver_hybrid'){reviews.push(...args.p_reviews);actions.push(...args.p_actions);row.status='applied';row.revision++;}else throw Error(name);return {item:clone(row)}};
+ return {inbox:createCommunicationInbox({store,timeZone:'Europe/Moscow'}),store,actions,reviews,id};
 }
-const safeMailTask=()=>({id:'33333333-3333-4333-8333-333333333333',kind:'task_create',selected:true,text:'Получить образец',evidence:'Пришлю образец завтра.',project_id:null,participant_id:null,deadline:'2026-10-21',deadline_time:null,next_check_on:null,task_id:null,task_version:null,direction:'to_me',status:'open',entry_kind:null,brief_revision:null,mail_agreement:'agreed',trigger_message_id:'new'});
+const safeMailTask=()=>({id:'33333333-3333-4333-8333-333333333333',kind:'task_create',selected:true,text:'Получить образец',evidence:'Пришлю образец завтра.',project_id:null,participant_id:null,deadline:'2026-10-21',deadline_time:null,next_check_on:null,task_id:null,task_version:null,direction:'to_me',status:'open',entry_kind:null,brief_revision:null,mail_agreement:'agreed',source_message_id:'new',trigger_message_id:'new',mail_relation:'waiting_for_other',mail_intent:'promise',mail_responsibility_evidence:'Пришлю образец завтра.',mail_trigger_evidence:'Пришлю образец завтра.'});
 test('clear Gmail action creates task immediately and retry does not create another',async()=>{
  const f=await deliveryFixture({changes:[safeMailTask()]});await f.inbox.deliverMail(f.id);await f.inbox.deliverMail(f.id);assert.equal(f.actions.length,1);assert.equal(f.actions[0].task.description,'Получить образец');assert.equal(f.actions[0].task.deadline,'2026-10-21');assert.match(f.actions[0].task.details,/nikodim.vercel.app/);
 });
-test('uncertain mail, failed analysis and existing-task updates become one undated review task',async()=>{
- for(const options of [{changes:[{...safeMailTask(),mail_agreement:'proposed'}]},{changes:[{...safeMailTask(),kind:'task_update'}]},{changes:[{...safeMailTask(),evidence_restored:true}]},{questions:['Кто согласовал?']},{status:'error'}]){
- const f=await deliveryFixture(options);await f.inbox.deliverMail(f.id);await f.inbox.deliverMail(f.id);assert.equal(f.actions.length,1);assert.equal(f.actions[0].kind,'task_create');assert.match(f.actions[0].task.description,/^Разобрать письмо:/);assert.equal(f.actions[0].task.deadline,null);assert.equal(f.actions[0].task.participant_id,null);}
+test('uncertain actions become independent proposals, never generic tasks; first errors wait',async()=>{
+ for(const options of [{changes:[{...safeMailTask(),mail_relation:'unclear'}]},{changes:[{...safeMailTask(),kind:'task_update'}]},{changes:[{...safeMailTask(),evidence_restored:true}]},{questions:['Кто согласовал?']}]){
+ const f=await deliveryFixture(options);await f.inbox.deliverMail(f.id);await f.inbox.deliverMail(f.id);assert.equal(f.actions.length,0);assert.equal(f.reviews.length,1);assert.ok(!JSON.stringify(f.reviews).includes('Разобрать письмо:'));}
+ const failed=await deliveryFixture({status:'error'});await failed.inbox.deliverMail(failed.id);assert.equal(failed.actions.length,0);assert.equal(failed.reviews.length,0);assert.equal(failed.store.db.cos_communication_inbox[0].status,'error');
+ failed.store.db.cos_communication_inbox[0].proposal.analysis.attempts=3;await failed.inbox.deliverMail(failed.id);assert.equal(failed.actions.length,0);assert.equal(failed.reviews.length,1);assert.equal(failed.reviews[0].proposal.analysis.technical_failure,true);
+});
+test('mixed mail applies its clear action while preserving another as an independent suggestion',async()=>{
+ const safe=safeMailTask(),unclear={...safeMailTask(),id:'44444444-4444-4444-8444-444444444444',text:'Согласовать конструкцию',mail_relation:'unclear'};
+ const f=await deliveryFixture({changes:[safe,unclear],questions:['Кто согласует конструкцию?']});await f.inbox.deliverMail(f.id);
+ assert.equal(f.actions.length,1);assert.equal(f.reviews.length,1);assert.equal(f.reviews[0].proposal.changes[0].text,'Согласовать конструкцию');assert.equal(f.reviews[0].proposal.changes.length,1);
 });
 test('information-only mail is acknowledged with no task; disabled delivery never mutates',async()=>{
  const info=await deliveryFixture();await info.inbox.deliverMail(info.id);assert.equal(info.actions.length,0);assert.equal(info.store.db.cos_communication_inbox[0].status,'applied');

@@ -15,8 +15,8 @@ function fixture(){
   let response=async(_,options)=>[{...app.S.tasks.find(t=>t.id==='mail-1'),...options.body,cos_version:3}];
   context.request=async(url,options)=>{calls.push({url,...options});return response(url,options)};
   context.message=(...args)=>messages.push(args);
-  vm.runInContext('api=request;toast=message;renderTaskContext=()=>{};',context);
-  const app=vm.runInContext('({S,mailReviewSource,mailReviewLists,mailReviewHtml,globalTasksPage,setMailReviewStatus,taskDrawer})',context);
+  vm.runInContext('api=request;quickNotesRequest=request;toast=message;renderTaskContext=()=>{};',context);
+  const app=vm.runInContext('({S,MR,mailSuggestionHtml,actOnMailSuggestion,mailReviewSource,mailReviewLists,mailReviewHtml,globalTasksPage,setMailReviewStatus,taskDrawer})',context);
   app.S.areas=[{key:'work',title:'Работа'}];app.S.tasks=[review('mail-1')];
   return {app,element,calls,messages,controls,response(fn){response=fn}};
 }
@@ -59,4 +59,15 @@ test('duplicate clicks, normal tasks, completed mail and active timers cannot tr
   f.app.S.tasks=[review('mail-1',{status:'completed'})];assert.equal(await f.app.setMailReviewStatus('mail-1','cancelled'),false);
   f.app.S.tasks=[{id:'normal',description:'Обычная задача',status:'open'}];assert.equal(await f.app.setMailReviewStatus('normal','cancelled'),false);
   f.app.S.tasks=[review('mail-1')];f.app.S.time=[{commitment_id:'mail-1',source:'timer',ended_at:null}];await f.app.setMailReviewStatus('mail-1','cancelled');assert.equal(f.calls.length,1);
+});
+
+test('hybrid suggestion shows the concrete action, quote, proposed date and individual controls',()=>{
+ const f=fixture(),item={id:source,revision:1,status:'ready',source_meta:{type:'gmail',delivery:'review'},proposal:{changes:[{id:source,kind:'task_create',text:'Согласовать чертёж',mail_review_reason:'Кто согласует?',mail_proposed_date:'в пятницу',evidence:'<b>Пришлите чертёж</b>'}]}};
+ f.app.MR.items=[item];const markup=f.app.mailReviewHtml([],[]);assert.match(markup,/Согласовать чертёж/);assert.match(markup,/Создать задачу/);assert.match(markup,/Исправить/);assert.match(markup,/Предлагаемый срок: в пятницу/);assert.match(markup,/&lt;b&gt;/);assert.doesNotMatch(markup,/<b>Пришлите/);
+ item.status='deferred';f.app.S.taskShowIgnored=true;assert.match(f.app.mailReviewHtml([],[]),/data-mail-action="resume"/);
+});
+test('accepting one suggestion leaves siblings intact; uncertain retries reuse the same request',async()=>{
+ const f=fixture(),one={id:source,revision:1,status:'ready',proposal:{version:1,changes:[{id:source,kind:'task_create',text:'Согласовать чертёж'}]}};
+ f.app.MR.items=[one,{...one,id:'sibling'}];let first=true;f.response(async()=>{if(first){first=false;throw Error('offline')}return {item:{...one,status:'applied',revision:2},result:{tasks:[{id:'created',description:'Согласовать чертёж',status:'open'}]}}});
+ await f.app.actOnMailSuggestion(source,'apply');assert.equal(one.status,'ready');const requestId=f.calls[0].body.request_id;await f.app.actOnMailSuggestion(source,'apply');assert.equal(f.calls[1].body.request_id,requestId);assert.equal(one.status,'applied');assert.equal(f.app.MR.items[1].status,'ready');assert.equal(f.app.S.tasks.filter(t=>t.id==='created').length,1);
 });
