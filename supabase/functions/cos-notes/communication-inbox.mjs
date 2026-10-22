@@ -10,6 +10,7 @@ import {MAIL_INSTRUCTIONS,mailEvidence,restoreMailEvidence} from './communicatio
 import {clockEvidence} from '../telegram-webhook/time-evidence.mjs';
 import {splitMailProposal,automaticReviewChanges} from './communication-mail-auto.mjs';
 import {automaticCreation} from './communication-auto.mjs';
+import {mailProject} from './communication-mail-project.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REVISION=2147483646;
 const MODEL='anthropic/claude-sonnet-4.6';
@@ -118,7 +119,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
     if(item.source_meta?.type==='gmail'){try{mail=mailEvidence(value,item,context)}catch{fail(503,'invalid_analysis')}}
     let old=value.kind==='task_update'?context.tasks.find(t=>t.id===value.task_id):null;
     if(value.kind==='task_update'&&!old){questions.push('Не удалось однозначно найти задачу для изменения: '+value.text);continue;}
-    const projectId=old?.project_id||(context.projects.some(p=>p.id===item.proposal?.owner_context?.project_id)?item.proposal.owner_context.project_id:null)||(mail&&context.projects.some(p=>p.id===item.source_meta.project_id)?item.source_meta.project_id:null)||groundedId(value.project_id,context.projects,'title',value.evidence);
+    const projectId=old?.project_id||(mail?mailProject(value,item,context.projects):(context.projects.some(p=>p.id===item.proposal?.owner_context?.project_id)?item.proposal.owner_context.project_id:null)||groundedId(value.project_id,context.projects,'title',value.evidence));
     const participant=mail?.person?{id:mail.person.id,suggestion:null}:participantFor(value,context,value.evidence);
     if(mail?.email&&!mail.person){
       const proposedName=String(value.participant_name||'').slice(0,200);
@@ -226,7 +227,7 @@ function editableProposal(input,persisted,{allowUnresolved=false}={}){
 }
 async function contextFor(store){
   const [projects,participants,tasks,briefs]=await Promise.all([
-    store.list('projects','select=id,title,status&status=eq.active&order=title.asc'),
+    store.list('projects','select=id,title,status,area_key&status=eq.active&order=title.asc'),
     store.list('participants','select=id,name&archived_at=is.null&order=name.asc'),
     store.list('commitments','select='+TASK_FIELDS+'&deleted_at=is.null&status=in.(open,paused)&order=updated_at.desc'),
     store.list('cos_project_briefs','select=project_id,revision,document&order=project_id.asc'),
@@ -312,11 +313,15 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
       return {item};
     }
   }
-  async function compile(item,proposal){
-    const changes=proposal.changes.filter(c=>c.selected),actions=[],briefs=new Map();
+  async function compile(item,proposal,{inferMailProject=false}={}){
+    let changes=proposal.changes.filter(c=>c.selected);const actions=[],briefs=new Map();
+    if(inferMailProject&&item.source_meta?.type==='gmail'&&changes.some(c=>c.kind==='task_create'&&!c.project_id)){
+      const candidates=await store.list('projects','select=id,title,status,area_key&status=eq.active');
+      changes=changes.map(c=>c.kind==='task_create'&&!c.project_id?{...c,project_id:mailProject(c,item,candidates)}:c);
+    }
     const selectedProjects=[...new Set(changes.map(c=>c.project_id).filter(Boolean))],selectedPeople=[...new Set(changes.map(c=>c.participant_id).filter(Boolean))];
     const [projects,people]=await Promise.all([
-      selectedProjects.length?store.list('projects','select=id,status&id=in.('+selectedProjects.join(',')+')'):[],
+      selectedProjects.length?store.list('projects','select=id,status,area_key&id=in.('+selectedProjects.join(',')+')'):[],
       selectedPeople.length?store.list('participants','select=id,name,archived_at&id=in.('+selectedPeople.join(',')+')'):[],
     ]);
     for(const change of changes){
@@ -326,6 +331,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
       if(change.kind.startsWith('task_')){
         const task={description:change.text,direction:change.direction,status:change.status,project_id:change.project_id,participant_id:change.participant_id,deadline:change.deadline,
           next_check_on:change.next_check_on};
+        if(change.kind==='task_create'&&item.source_meta?.type==='gmail')task.area_key=projects.find(p=>p.id===change.project_id)?.area_key||'work';
         const followup=followupFor(change,item);
         if(followup){task.next_check_at=followup.check_at;task.next_check_on=localDay(followup.check_at,proposal.time_zone||await zone());}
         const original=item.proposal?.changes?.find(c=>c.id===change.id);
@@ -361,13 +367,13 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     for(const [project_id,brief]of briefs)actions.push({id:brief.id,kind:'brief_replace',project_id,revision:brief.revision,document:validateProjectBriefDocument(brief.document)});
     return actions;
   }
-  async function apply(id,data){
+  async function apply(id,data,compileOptions={}){
     if(!object(data)||Object.keys(data).some(k=>!['revision','request_id','proposal'].includes(k))||!revision(data.revision)||!UUID.test(data.request_id||''))fail(400,'invalid_request');
     const {item}=await get(id);if(item.source_meta?.superseded)fail(409,'source_superseded');if(item.status==='processing')fail(409,'inbox_conflict');
     if(item.status==='applied'){try{const replay=await store.rpc('cos_inbox_apply',{p_id:id,p_revision:data.revision,p_request_id:data.request_id,p_actions:[],p_confirmation:clone(data)});return {...replay,item:safeItem(replay.item)}}catch(error){throw mapped(error)}}
     if(item.revision!==data.revision)fail(409,'inbox_conflict');
     if(!['ready','deferred'].includes(item.status))fail(409,'inbox_not_ready');
-    const proposal=editableProposal(data.proposal??item.proposal,item.proposal),actions=await compile(item,proposal);
+    const proposal=editableProposal(data.proposal??item.proposal,item.proposal),actions=await compile(item,proposal,compileOptions);
     try{const result=await store.rpc('cos_inbox_apply',{p_id:id,p_revision:data.revision,p_request_id:data.request_id,p_actions:actions,p_confirmation:clone(data)});
       if(item.source_meta?.type==='gmail')for(const change of proposal.changes.filter(c=>c.selected&&c.participant_id&&c.participant_email))await store.upsert('cos_gmail_people',{email:change.participant_email,participant_id:change.participant_id},'email').catch(()=>{});
       if(item.source_meta?.type==='gmail'){const projects=[...new Set(proposal.changes.filter(c=>c.selected&&c.project_id).map(c=>c.project_id))];if(projects.length===1)await store.patch('cos_gmail_threads',eq('thread_id',item.source_meta.thread_id)+'&links_revision=eq.0',{project_id:projects[0]}).catch(()=>{});}
@@ -397,7 +403,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     if(item.source_meta.delivery==='review'){
       if(settings.review_before_create===true||item.status!=='ready'||item.proposal?.changes?.length!==1)return {item};
       if(automaticReviewChanges(item).length!==1)return {item};
-      return apply(id,{revision:item.revision,request_id:item.id,proposal:{version:1,changes:item.proposal.changes}});
+      return apply(id,{revision:item.revision,request_id:item.id,proposal:{version:1,changes:item.proposal.changes}},{inferMailProject:true});
     }
     if(item.source_meta.delivery!=='tasks')return {item};
     if(item.status==='error'){
@@ -409,7 +415,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     const split=splitMailProposal(item),original=item.proposal;
     const automatic=settings.review_before_create===true?[]:split.automatic;
     const reviews=settings.review_before_create===true?[...split.automatic.map(c=>({...c,mail_review_reason:c.mail_review_reason||'Предложение по письму — подтвердите действие.'})),...split.reviews]:split.reviews;
-    const actions=await compile(item,{...original,changes:automatic});
+    const actions=await compile(item,{...original,changes:automatic},{inferMailProject:true});
     const pending=reviews.map(change=>({id:change.id,proposal:{...original,summary:change.mail_review_reason,questions:[],changes:[change]}}));
     if(!original.changes?.length&&original.questions?.length||original.questions?.some(q=>q.startsWith('Часть предложений'))){
       pending.push({id:original.analysis.id,proposal:{...original,changes:[],summary:original.summary||original.questions.join(' '),questions:original.questions}});

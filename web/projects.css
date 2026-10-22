@@ -1,0 +1,49 @@
+/* Project directory: one quiet row per project, scoped to this page. */
+.projects-page{max-width:1360px;padding-top:32px;color:#293342}
+.projects-page .head{margin-bottom:24px;gap:16px;display:flex}
+.projects-page .head h1{font-size:25px;font-weight:600;letter-spacing:-.55px;margin:0}
+.projects-page .head p{font-size:13px;margin:7px 0 0;color:#79828f}
+.projects-page .head .btn{min-height:36px;font-size:13px;padding:8px 13px;border-radius:7px;box-shadow:none}
+.projects-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:16px;border-bottom:1px solid #e1e5eb;margin-bottom:24px;padding-bottom:14px}
+.projects-tabs{display:flex;align-items:center;gap:4px;margin-right:auto}
+.projects-tabs button{border:0;background:transparent;color:#6a7483;font-family:inherit;font-size:13px;font-weight:500;line-height:1.4;padding:8px 12px;border-radius:6px;min-height:36px}
+.projects-tabs button.active{background:#e9edf3;color:#273950}
+.projects-tabs button:hover{background:#edf0f5}
+.projects-page .search{border-radius:7px;max-width:230px;padding:0 10px;gap:8px}
+.projects-page .search input{font-size:13px;padding:8px 0;min-width:0;background:transparent}
+.projects-area-select{display:flex;align-items:center;gap:8px;font-size:13px;color:#687483}
+.projects-area-select select{font:inherit;min-height:36px;max-width:180px;padding:6px 25px 6px 10px;border:1px solid #dde3ea;border-radius:7px;background:#fff;color:#445164}
+.projects-page .area-block{margin:0 0 26px}
+.projects-page .area-heading{justify-content:flex-start;gap:9px;margin:0 0 10px;padding:0 2px}
+.projects-page .area-heading h2{font-size:13px;font-weight:600;letter-spacing:0;color:#526074}
+.projects-page .area-heading>span{font-size:11px;line-height:18px;min-width:20px;text-align:center;background:#e9edf2;border-radius:5px;color:#7a8594}
+.project-directory{background:#fff;border:1px solid #e1e6ed;border-radius:10px}
+.project-directory-head,.project-line{display:grid;grid-template-columns:minmax(180px,1fr) 105px 84px 84px 104px 34px;align-items:center;gap:14px;padding:0 18px}
+.project-directory-head{min-height:38px;border-bottom:1px solid #edf0f4;font-size:11px;color:#858d99;background:#fafbfc;border-radius:10px 10px 0 0}
+.project-directory-head>span:nth-child(n+3){text-align:right}
+.project-line{min-height:69px;position:relative;border-bottom:1px solid #edf0f4;transition:background .15s}
+.project-line:last-child{border-bottom:0;border-radius:0 0 10px 10px}
+.project-line:hover{background:#fafbfd}
+.project-line:has(details[open]){z-index:5;background:#fafbfd}
+.project-name{display:flex;align-items:center;gap:12px;min-width:0;border:0;background:transparent;padding:12px 0;min-height:56px;text-align:left;color:#283444;font-family:inherit;cursor:pointer}
+.project-monogram{display:grid;place-items:center;flex:0 0 31px;width:31px;height:31px;border:1px solid #dfe5ed;border-radius:8px;color:#6b7f99;background:#f1f4f8;font-size:12px;font-weight:600}
+.project-name>span:last-child{min-width:0;display:grid;gap:3px}
+.project-name strong{font-size:14px;line-height:1.45;font-weight:600;overflow-wrap:anywhere}
+.project-name small{font-size:12px;color:#8a929d;font-weight:400}
+.project-name:hover strong{color:#345c8a}
+.project-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#647181;white-space:nowrap}
+.project-state:before{content:'';width:6px;height:6px;flex:0 0 6px;border-radius:50%;background:#71a18c}
+.project-state.paused:before{background:#c4a15b}.project-state.completed:before{background:#b4bdc8}
+.project-number{text-align:right;color:#48576b;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}
+.project-number.is-zero{color:#bcc3cd}.project-number.is-overdue{color:#b45c59;font-weight:600}
+.project-number small{display:none}
+.project-menu{position:relative;justify-self:end}
+.project-menu summary{list-style:none;cursor:pointer;width:32px;height:32px;display:grid;place-items:center;color:#8b95a2;border-radius:6px;font-size:20px;line-height:1}
+.project-menu summary::-webkit-details-marker{display:none}
+.project-menu summary:hover,.project-menu[open] summary{background:#e9edf3;color:#3d506b}
+.project-menu-panel{position:absolute;right:0;top:35px;z-index:10;min-width:186px;padding:5px;background:#fff;border:1px solid #dfe4eb;border-radius:8px;box-shadow:0 10px 26px #22344b1a}
+.project-menu-panel button{display:block;width:100%;min-height:36px;padding:8px 10px;background:transparent;border:0;text-align:left;border-radius:5px;color:#445164;font-family:inherit;font-size:13px}
+.project-menu-panel button:hover{background:#f1f4f8}.project-menu-panel .close-project{color:#a45858}
+@media(max-width:1050px){.project-directory-head,.project-line{grid-template-columns:minmax(140px,1fr) 90px 60px 60px 85px 30px;gap:10px;padding:0 13px}.projects-toolbar{gap:10px}.projects-page .search{max-width:190px}}
+@media(max-width:760px){.projects-page{padding:24px 16px 48px}.projects-page .head{align-items:center;margin-bottom:20px}.projects-page .head h1{font-size:23px}.projects-page .head p{font-size:12px}.projects-page .head-actions{margin:0}.projects-page .head .btn{min-height:40px}.projects-toolbar{gap:12px;margin-bottom:22px}.projects-tabs{width:100%;gap:3px}.projects-tabs button{font-size:13px;min-height:40px;padding:9px 11px}.projects-page .search{flex:1;max-width:none;min-width:140px}.projects-page .search input{font-size:16px}.projects-area-select>span{display:none}.projects-area-select select{max-width:150px;min-height:40px}.project-directory-head{display:none}.project-line{grid-template-columns:minmax(0,1fr) auto 32px;gap:0 10px;padding:10px 12px;min-height:95px}.project-name{grid-column:1;min-height:44px;padding:3px 0;gap:9px}.project-name strong{font-size:14px}.project-monogram{width:28px;height:28px;flex-basis:28px;font-size:11px}.project-name small{display:none}.project-state{grid-column:2;font-size:11px}.project-menu{grid-column:3;grid-row:1}.project-menu summary{width:36px;height:40px}.project-line-stats{grid-column:1/4;display:flex;gap:14px;padding:6px 0 0 37px}.project-number{font-size:12px;text-align:left;display:flex;gap:4px;white-space:nowrap}.project-number small{display:inline;font-size:11px;color:#8993a0;font-weight:400}.project-menu-panel button{min-height:42px}.project-line:first-child{border-radius:10px 10px 0 0}}
+@media(min-width:761px){.project-line-stats{display:contents}}

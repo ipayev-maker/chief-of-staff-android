@@ -49,7 +49,7 @@ function fixture(){
 
 test('projects page exposes add action; new dialog has an empty title, current area and active/green defaults',async()=>{
   const f=fixture();f.app.S.areaFilter='work';f.app.projectsPage();
-  assert.match(f.select('#main').innerHTML,/id="addProject"[^>]*aria-haspopup="dialog"[^>]*>＋ Добавить проект/);
+  assert.match(f.select('#main').innerHTML,/id="addProject"[^>]*aria-haspopup="dialog"[^>]*>[\s\S]*?Добавить проект/);
   await f.select('#addProject').onclick();
   const dialog=f.dialogs[0];assert.equal(dialog.open,true);
   assert.match(dialog.innerHTML,/>Добавить проект<\/h2>/);
