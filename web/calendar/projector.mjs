@@ -32,26 +32,27 @@ function html(value) {
 export function projectCalendarRecord(kind, record, options = {}) {
   let identity = null;
   try {
-    if (!['task', 'meeting'].includes(kind)) throw Error('invalid_kind');
+    if (!['task', 'meeting','task_check'].includes(kind)) throw Error('invalid_kind');
     if (!record || !UUID.test(record.id)) throw Error('invalid_source_id');
     // The executor must persist and serialize generation changes before API calls.
     // Retry within one generation; increment only after confirmed deletion.
     const generation = options.generation ?? 0;
     if (!Number.isSafeInteger(generation) || generation < 0) throw Error('invalid_generation');
     identity = {sourceKind:kind, sourceId:record.id.toLowerCase(), generation,
-      eventId:(kind === 'task' ? 'cosd' : 'cosm') + record.id.replaceAll('-', '').toLowerCase() + (generation ? 'g' + generation.toString(16) : '')};
-    const states = kind === 'task' ? ['open','paused','completed','cancelled'] : ['scheduled','in_progress','completed','cancelled'];
+      eventId:(kind === 'task' ? 'cosd' : kind==='task_check'?'cosc':'cosm') + record.id.replaceAll('-', '').toLowerCase() + (generation ? 'g' + generation.toString(16) : '')};
+    const states = kind !== 'meeting' ? ['open','paused','completed','cancelled'] : ['scheduled','in_progress','completed','cancelled'];
     if (!states.includes(record.status)) throw Error('invalid_source_status');
     if (record.status === 'cancelled') return {kind:'absent', ...identity, reason:'cancelled'};
     if (kind === 'task' && !record.deadline && !record.deadline_at) return {kind:'absent', ...identity, reason:'deadline_removed'};
+    if(kind==='task_check'&&(!record.next_check_at||record.status!=='open'))return {kind:'absent',...identity,reason:'check_removed'};
     const timeZone = options.timeZone;
     if (!timeZone || typeof timeZone !== 'string') throw Error('calendar_time_zone_required');
     new Intl.DateTimeFormat('en-US', {timeZone}).format(new Date(0));
-    const title = kind === 'task' ? record.description : record.title;
+    const title = kind !== 'meeting' ? record.description : record.title;
     if (typeof title !== 'string' || !title.trim()) throw Error('source_title_required');
     const warnings = [];
     const description = ['Chief of Staff', options.projectTitle ? 'Проект: ' + html(options.projectTitle) : null].filter(Boolean);
-    let reminders = {useDefault:true};
+    let reminders = kind==='task_check'?{useDefault:false,overrides:[{method:'popup',minutes:0}]}:{useDefault:true};
     if (kind === 'meeting') {
       // Omitted fields retain the existing 15-minute default; explicit null disables.
       const minutes = record.remind_before_minutes === undefined ? 15 : record.remind_before_minutes;
@@ -60,14 +61,15 @@ export function projectCalendarRecord(kind, record, options = {}) {
     }
     const event = {
       id:identity.eventId,
-      summary:(record.status === 'completed' ? '✓ ' : record.status === 'paused' ? '⏸ ' : '') + (kind === 'task' ? 'Срок: ' : '') + title.trim(),
+      summary:(record.status === 'completed' ? '✓ ' : record.status === 'paused' ? '⏸ ' : '') + (kind === 'task' ? 'Срок: ' : kind==='task_check'?'Проверить ответ: ':'') + title.trim(),
       status:'confirmed',
-      transparency:kind === 'task' ? 'transparent' : 'opaque',
+      transparency:kind !== 'meeting' ? 'transparent' : 'opaque',
       source:{title:'Chief of Staff', url:APP_URL},
       extendedProperties:{private:{cosApp:APP, cosSourceKind:kind, cosSourceId:identity.sourceId, cosGeneration:String(identity.generation)}},
       reminders:record.status === 'completed' ? {useDefault:false, overrides:[]} : reminders
     };
-    if (kind === 'task' && record.deadline_at) {
+    if(kind==='task_check'){const start=instant(record.next_check_at);event.start={dateTime:start.toISOString(),timeZone};event.end={dateTime:new Date(+start+60000).toISOString(),timeZone};description.push('Проверка ответа или результата по задаче. Не является крайним сроком.');}
+    else if (kind === 'task' && record.deadline_at) {
       const start = instant(record.deadline_at);
       event.start = {dateTime:start.toISOString(), timeZone};
       event.end = {dateTime:new Date(start.getTime() + 60000).toISOString(), timeZone};

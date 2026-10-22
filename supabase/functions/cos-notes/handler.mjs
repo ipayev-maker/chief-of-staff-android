@@ -1,16 +1,16 @@
 import {allowedOrigin} from '../cos-google-calendar/domain-bridge.mjs';
 import {ProjectBriefError, getProjectBrief, saveProjectBrief} from './project-brief.mjs';
-import {ParticipantError, createParticipant, updateParticipant} from './participants.mjs';
+import {ParticipantError, createParticipant, updateParticipant, archiveParticipant} from './participants.mjs';
 import {CommunicationInboxError, createCommunicationInbox} from './communication-inbox.mjs';
 import {APP_ORIGIN, sha256} from '../cos-google-calendar/google.mjs';
 
 const SESSION_COOKIE = '__Host-cos-calendar-session';
-const MAX_BODY_BYTES = 128 * 1024;
+const MAX_BODY_BYTES = 512 * 1024;
 const BODY_TIMEOUT_MS = 10_000;
 const NOTE_FIELDS = Object.freeze([
   'id', 'title', 'plain_text', 'project_id', 'source', 'source_message_id',
   'telegram_chat_id', 'telegram_message_id', 'telegram_update_id',
-  'archived_at', 'created_at', 'updated_at', 'revision',
+  'archived_at', 'created_at', 'updated_at', 'revision','document',
 ]);
 const TASK_FIELDS = Object.freeze([
   'description', 'details', 'status', 'direction', 'project_id', 'area_key', 'participant_id',
@@ -59,8 +59,10 @@ function resource(url) {
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
   if (path === 'inbox') return {kind: 'inboxList', methods: ['GET']};
-  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel|deliverMail))?$/.exec(path);
+  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel|deliverMail|setContext))?$/.exec(path);
   if (inbox) return {kind: 'inbox', id: resourceUuid(inbox[1]), action: inbox[2] || 'get', methods: [!inbox[2] || inbox[2] === 'audio' ? 'GET' : 'POST']};
+  const asset=/^([^/]+)\/assets(?:\/(prepare|complete|remove))?$/.exec(path);
+  if(asset)return {kind:'media',id:resourceUuid(asset[1]),action:asset[2]||'list',methods:[asset[2]?'POST':'GET']};
   if (path === 'participants') return {kind: 'participants', methods: ['POST']};
   let parts = /^participants\/([^/]+)$/.exec(path);
   if (parts) return {kind: 'participant', id: resourceUuid(parts[1]), methods: ['PATCH']};
@@ -128,7 +130,7 @@ async function readJson(request) {
 }
 
 function noteValues(data, creating, timestamp) {
-  const allowed = creating ? ['title', 'plain_text', 'project_id'] : ['revision', 'title', 'plain_text', 'project_id', 'archived'];
+  const allowed = creating ? ['title', 'plain_text', 'project_id','document'] : ['revision', 'title', 'plain_text', 'project_id', 'archived','document'];
   if (Object.keys(data).some(key => !allowed.includes(key))) fail(400, 'invalid_request');
   if (!creating && (!Number.isSafeInteger(data.revision) || data.revision < 1 || data.revision >= 2147483647)) {
     fail(400, 'invalid_revision');
@@ -143,7 +145,7 @@ function noteValues(data, creating, timestamp) {
     values.title = title.trim();
   }
   if (creating || own(data, 'plain_text')) {
-    if (typeof data.plain_text !== 'string' || !data.plain_text.trim() || data.plain_text.length > 64000 || data.plain_text.includes('\0')) {
+    if (typeof data.plain_text !== 'string' || data.plain_text.length > 64000 || data.plain_text.includes('\0')) {
       fail(400, 'invalid_note');
     }
     values.plain_text = data.plain_text;
@@ -157,6 +159,7 @@ function noteValues(data, creating, timestamp) {
     if (typeof data.archived !== 'boolean') fail(400, 'invalid_request');
     values.archived_at = data.archived ? timestamp : null;
   }
+  if(own(data,'document'))values.document=data.document;else if(own(data,'plain_text'))values.document=null;
   if (creating) values.source = 'web';
   return values;
 }
@@ -244,7 +247,7 @@ function taskResult(result) {
  * authorizes reads/writes. Calendar connection status is deliberately ignored.
  * No caller-controlled email, anonymous key or Google token is accepted here.
  */
-export function createNotesHandler({store, now = () => new Date(), inbox = createCommunicationInbox({store, now})}) {
+export function createNotesHandler({store, media, now = () => new Date(), inbox = createCommunicationInbox({store, now})}) {
   async function authenticate(request) {
     const token = sessionToken(request);
     if (!token) fail(401, 'unauthorized');
@@ -287,11 +290,12 @@ export function createNotesHandler({store, now = () => new Date(), inbox = creat
         }
         return json(await inbox[route.action](id, method === 'POST' ? await readJson(request) : undefined));
       }
+      if(route.kind==='media'){if(url.search||!media)fail(400,'invalid_request');return json(await media[route.action](id,method==='POST'?await readJson(request):undefined));}
       if (route.kind === 'participants' || route.kind === 'participant') {
         if (url.search) fail(400, 'invalid_request');
         const data = await readJson(request);
         const result = route.kind === 'participants' ? await createParticipant({store, data}) :
-          await updateParticipant({store, id, data});
+          await (own(data,'archived')?archiveParticipant:updateParticipant)({store, id, data, now});
         return json(result, route.kind === 'participants' && !result.replayed ? 201 : 200);
       }
       if (route.kind === 'projectBrief') {
@@ -374,6 +378,14 @@ export function createNotesHandler({store, now = () => new Date(), inbox = creat
         if (!current.length) fail(404, 'note_not_found');
         return json({error: projectNote ? 'project_note_conflict' : 'revision_conflict', ...(!projectNote ? {note: noteView(current[0])} : {})}, 409);
       }
+      if(data.document!==undefined&&data.document!==null){
+        const d=data.document;
+        if(!d||d.version!==1||Object.keys(d).some(k=>!['version','blocks'].includes(k))||!Array.isArray(d.blocks)||d.blocks.length>1000)fail(400,'invalid_note');
+        const images=[];let plain=[];
+        for(const b of d.blocks){if(b?.type==='text'&&Object.keys(b).length===2&&typeof b.text==='string'&&!b.text.includes('\0'))plain.push(b.text);else if(b?.type==='image'&&Object.keys(b).length===2&&UUID.test(b.asset_id||''))images.push(b.asset_id);else fail(400,'invalid_note');}
+        if(plain.join('\n')!==data.plain_text||plain.join('\n').length>64000)fail(400,'invalid_note');
+        if(images.length){if(!id)fail(400,'invalid_note');const assets=await store.list('cos_note_assets','select=id&note_id=eq.'+id+'&pending=eq.false&deleted_at=is.null&mime_type=like.image/*&id=in.('+[...new Set(images)].join(',')+')');if(images.some(id=>!assets.some(a=>a.id===id)))fail(400,'invalid_note');}
+      }
       const values = noteValues(data, method === 'POST', now().toISOString());
       if (method === 'POST') {
         const row = await store.insert('quick_notes', values, {timeoutMs: 8000});
@@ -407,6 +419,7 @@ export function createNotesHandler({store, now = () => new Date(), inbox = creat
         return json({error: 'invalid_task'}, 400);
       }
       if (error?.code === '23503') return json({error: 'invalid_project'}, 400);
+      if(error?.mediaError)return json({error:error.code},error.status);
       if (['23514', '22001', '22P02'].includes(error?.code)) return json({error: 'invalid_note'}, 400);
       return json({error: 'notes_unavailable'}, 503);
     }

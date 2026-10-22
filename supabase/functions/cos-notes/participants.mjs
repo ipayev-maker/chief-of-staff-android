@@ -1,7 +1,7 @@
 // Owner-session participant writes. The handler authorizes before invoking this
 // module; existing anonymous reads and RLS policies are unchanged.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FIELDS = 'id,name,created_at';
+const FIELDS = 'id,name,created_at,archived_at';
 const eq = (key, value) => `${key}=eq.${encodeURIComponent(String(value))}`;
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -28,7 +28,7 @@ const nameKey = value => normalizeParticipantName(value).toLocaleLowerCase('ru')
 function participantView(row) {
   if (!row || typeof row !== 'object' || !UUID.test(row.id) || typeof row.name !== 'string' ||
       !row.name.trim() || row.name.includes('\0')) fail(503, 'participants_unavailable');
-  return {id: row.id.toLowerCase(), name: row.name,
+  return {id: row.id.toLowerCase(), name: row.name, ...(own(row,'archived_at')?{archived_at:row.archived_at}:{}),
     ...(own(row, 'created_at') ? {created_at: row.created_at} : {})};
 }
 
@@ -120,4 +120,13 @@ export async function updateParticipant({store, id, data}) {
     if (error instanceof ParticipantError) throw error;
     fail(503, 'participants_unavailable');
   }
+}
+
+export async function archiveParticipant({store,id,data,now=()=>new Date()}){
+ if(!UUID.test(id||'')||!data||Object.keys(data).length!==2||typeof data.archived!=='boolean'||!(data.expected_archived_at===null||typeof data.expected_archived_at==='string'&&Number.isFinite(Date.parse(data.expected_archived_at))))fail(400,'invalid_participant');
+ const current=await currentParticipant(store,id);if(!current)fail(404,'participant_not_found');
+ if(!!current.archived_at===data.archived)return {participant:current,replayed:true};
+ if(current.archived_at!==data.expected_archived_at)fail(409,'participant_conflict',current);
+ const rows=await store.patch('participants',eq('id',id)+'&archived_at='+(current.archived_at?'eq.'+encodeURIComponent(current.archived_at):'is.null'),{archived_at:data.archived?now().toISOString():null});
+ if(rows.length!==1)fail(409,'participant_conflict');return {participant:participantView(rows[0]),replayed:false};
 }

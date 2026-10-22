@@ -33,7 +33,7 @@
     const say=(message,error=false)=>{notice.textContent=message;notice.className=error?'gm-error':'gm-notice'};
     const refresh=async()=>{data=await request('status');content.innerHTML=render(data,labels);dirty=false;};
     const run=async fn=>{if(busy)return;busy=true;dialog.setAttribute('aria-busy','true');try{await fn()}catch(e){say(e.message,true)}finally{busy=false;dialog.removeAttribute('aria-busy')}};
-    const formSettings=()=>{const f=content.querySelector('[data-gm-settings]');return {label_ids:[...f.elements.labels.selectedOptions].map(o=>o.value),emails:f.elements.emails.value.split(/[\s,;]+/).filter(Boolean),ai_consent:f.elements.ai.checked,auto_tasks:f.elements.auto_tasks.checked,review_before_create:true,enabled:f.elements.enabled.checked}};
+    const formSettings=()=>{const f=content.querySelector('[data-gm-settings]');return {label_ids:[...f.elements.labels.selectedOptions].map(o=>o.value),emails:f.elements.emails.value.split(/[\s,;]+/).filter(Boolean),ai_consent:f.elements.ai.checked,auto_tasks:f.elements.auto_tasks.checked,review_before_create:false,enabled:f.elements.enabled.checked}};
     dialog.addEventListener('input',()=>{dirty=true});
     dialog.addEventListener('submit',e=>{if(!e.target.matches('[data-gm-settings]'))return;e.preventDefault();run(async()=>{await request('settings',formSettings());await refresh();say(data.settings.enabled?'Правила сохранены. Импорт начнётся при ближайшей проверке.':'Правила сохранены. Импорт на паузе.')})});
     dialog.addEventListener('click',e=>{

@@ -38,3 +38,9 @@ export function splitMailProposal(item){
   }
   return {automatic,reviews,information};
 }
+
+export function automaticReviewChanges(item){
+ if(item.source_meta?.delivery!=='review'||item.status!=='ready'||item.proposal?.changes?.length!==1)return [];
+ const change=item.proposal.changes[0];
+ return splitMailProposal({...item,proposal:{...item.proposal,changes:[{...change,mail_review_reason:change.mail_review_reason==='Предложение по письму — подтвердите действие.'?null:change.mail_review_reason}]}}).automatic;
+}

@@ -54,7 +54,7 @@
   function mount(container,options){
     const doc=container.ownerDocument,view=doc.defaultView;
     const state={rows:[],nextOffset:null,selected:options.selectedId||null,message:null,thread:null,body:null,loading:true,error:'',bodyError:'',auth:false,query:'',filter:'all',remote:false,zoom:1,busy:false,editing:null,draft:null,actionError:'',requests:new Map(),linksDraft:null,linksError:'',linksPending:null,projectFilter:'',personFilter:'',proposalIndex:0};
-    let disposed=false,sequence=0,bodySequence=0,listSequence=0,observer=null;
+    let disposed=false,sequence=0,bodySequence=0,listSequence=0,observer=null,renderedMessage=null,renderedBody=null,renderedStyle='';
     const request=options.mailRequest,notes=options.notesRequest;
     const canLeave=()=>!state.busy&&(!(state.draft||state.linksDraft)||view.confirm('Есть несохранённые правки. Перейти без сохранения?'));
     const gmailLink=()=>`https://mail.google.com/mail/?authuser=${encodeURIComponent(state.thread?.owner_email||'')}#all/${encodeURIComponent(state.message||state.selected||'')}`;
@@ -71,7 +71,7 @@
       return people.filter(p=>!p.deleted_at&&!p.archived_at&&!selected.includes(p.id)).sort((a,b)=>Number(linked.includes(b.id))-Number(linked.includes(a.id)));
     }
     function projectOptions(selected,empty='Без проекта'){
-      const rows=(options.projects||[]).filter(p=>p.status==='active');
+      const rows=(options.getProjects?.()||options.projects||[]).filter(p=>p.status==='active');
       return `<option value="">${empty}</option>${selected&&!rows.some(p=>p.id===selected)?`<option value="${esc(selected)}" selected disabled>${esc(projectName(selected))} · неактивен</option>`:''}${rows.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.title)}</option>`).join('')}`;
     }
     function linksHTML(){
@@ -83,7 +83,7 @@
     function editorHTML(c){
       const field=(label,key,type='text')=>`<label>${label}<input data-edit="${key}" type="${type}" value="${esc(c[key]||'')}" ${type==='number'?'min="1" max="1440"':''}></label>`;
       const select=(label,key,rows)=>`<label>${label}<select data-edit="${key}">${rows.map(([id,title])=>`<option value="${esc(id)}" ${String(c[key]||'')===id?'selected':''}>${esc(title)}</option>`).join('')}</select></label>`;
-      return `<div class="mr-editor"><label>Действие<textarea data-edit="text" maxlength="2000" rows="3">${esc(c.text)}</textarea></label><div class="mr-fields">${!c.kind.startsWith('project_')?select('Проект','project_id',[['','Без проекта'],...(options.projects||[]).filter(p=>p.status==='active').map(p=>[p.id,p.title])]):''}${select('Участник','participant_id',[['','Не указан'],...peopleOptions(c.project_id).map(p=>[p.id,p.name])])}${c.kind.startsWith('task_')?select('Кто действует','direction',[['internal','Моё действие'],['from_me','Мне сделать'],['to_me','Жду от участника']])+field('Срок результата','deadline','date')+field('Время срока','deadline_time','time')+(Object.hasOwn(c,'planned_on')?field('Когда заняться','planned_on','date')+field('Время работы','planned_time','time'):''):''}${c.kind==='meeting_create'?field('Дата встречи','meeting_date','date')+field('Время встречи','meeting_time','time')+field('Длительность, минут','duration_minutes','number'):''}</div><div class="mr-actions"><button class="mr-text-button" data-action="person">＋ Новый участник</button>${!c.kind.startsWith('project_')?'<button class="mr-text-button" data-action="project">＋ Создать проект</button>':''}</div></div>`;
+      return `<div class="mr-editor"><label>Действие<textarea data-edit="text" maxlength="2000" rows="3">${esc(c.text)}</textarea></label><div class="mr-fields">${!c.kind.startsWith('project_')?select('Проект','project_id',[['','Без проекта'],...(options.getProjects?.()||options.projects||[]).filter(p=>p.status==='active').map(p=>[p.id,p.title])]):''}${select('Участник','participant_id',[['','Не указан'],...peopleOptions(c.project_id).map(p=>[p.id,p.name])])}${c.kind.startsWith('task_')?select('Кто действует','direction',[['internal','Моё действие'],['from_me','Мне сделать'],['to_me','Жду от участника']])+field('Срок результата','deadline','date')+field('Время срока','deadline_time','time')+(Object.hasOwn(c,'planned_on')?field('Когда заняться','planned_on','date')+field('Время работы','planned_time','time'):''):''}${c.kind==='meeting_create'?field('Дата встречи','meeting_date','date')+field('Время встречи','meeting_time','time')+field('Длительность, минут','duration_minutes','number'):''}</div><div class="mr-actions"><button class="mr-text-button" data-action="person">＋ Новый участник</button>${!c.kind.startsWith('project_')?'<button class="mr-text-button" data-action="project">＋ Создать проект</button>':''}</div></div>`;
     }
     function agentHTML(){
       if(!state.thread||!state.message)return '';
@@ -100,11 +100,15 @@
       return `<section class="mr-agent" aria-labelledby="mrAgentHeading"><header><h2 id="mrAgentHeading">✦ Никодим · предложения</h2>${proposals.length>1?`<div class="mr-proposal-nav"><button aria-label="Предыдущее предложение" data-action="prev-proposal" ${state.busy||state.proposalIndex===0?'disabled':''}>←</button><span>${state.proposalIndex+1} из ${proposals.length}</span><button aria-label="Следующее предложение" data-action="next-proposal" ${state.busy||state.proposalIndex===proposals.length-1?'disabled':''}>→</button></div>`:''}</header>${action}${state.actionError?`<p class="error" role="alert">${esc(state.actionError)}</p>`:''}${summary?`<details class="mr-summary-details"><summary>Резюме письма</summary><p class="mr-summary">${esc(summary)}</p></details>`:''}${billing?'<p class="mr-notice">Разбор приостановлен: OpenRouter отклонил запрос из-за оплаты или лимита.</p>':failed?'<p class="mr-notice">Не удалось завершить разбор.</p>':''}${!records.length?'<p class="mr-muted">Письмо ожидает ближайшей синхронизации.</p>':''}${parent&&['captured','processing'].includes(parent.status)?'<p class="mr-muted">Ожидает разбора агентом.</p>':''}${parent&&['captured','error','ready'].includes(parent.status)&&!proposals.length?`<button class="btn" ${parent.status==='ready'?'data-prepare':'data-analyze'}="${esc(parent.id)}" ${state.busy?'disabled':''}>${parent.status==='ready'?'Показать предложения':failed?'Повторить разбор':'Разобрать письмо'}</button>`:''}${parent?.status==='applied'&&!proposals.length&&!failed?'<p class="mr-muted">Нет предложений, требующих решения.</p>':''}</section>`;
     }
     function drawReader(){
-      observer?.disconnect();const reader=container.querySelector('.mr-reader');if(!reader)return;
+      const reader=container.querySelector('.mr-reader');if(!reader)return;
+      const style=state.zoom+':'+state.remote,keep=renderedMessage===state.message&&renderedBody===state.body&&renderedStyle===style?reader.querySelector('.mr-mail-scroll'):null;
+      if(!keep)observer?.disconnect();
+      renderedMessage=state.message;renderedBody=state.body;renderedStyle=style;
       if(!state.thread){reader.innerHTML=`<div class="mr-reader-empty"><span>✉</span><h2>${state.selected?'Открываю письмо…':'Выберите письмо'}</h2><p>Письмо целиком и предложения Никодима — здесь.</p></div>`;return;}
       const meta=state.thread.messages.find(m=>m.id===state.message),body=state.body;
       reader.innerHTML=`<div class="mr-reading-bar"><button class="mr-back" data-action="back">← Письма</button><a href="${esc(gmailLink())}" target="_blank" rel="noopener noreferrer">Открыть в Gmail ↗</a><button class="mr-text-button" data-action="zoom" aria-label="Увеличить текст">Аа ${Math.round(state.zoom*100)}%</button></div><div class="mr-control-panel">${linksHTML()}<div class="mr-agent-slot">${agentHTML()}</div></div><div class="mr-mail-scroll"><article class="mr-message"><h1>${esc(meta?.subject||state.thread.subject)}</h1><div class="mr-envelope"><span class="mr-avatar">${esc(name(meta?.from).slice(0,1).toUpperCase())}</span><div><b>${esc(name(meta?.from))}</b><details><summary>Кому и когда</summary><p>От: ${esc(meta?.from)}<br>Кому: ${esc(meta?.to)}<br>${esc(date(meta?.date))}</p></details></div></div>${state.thread.messages.length>1?`<label class="mr-conversation">В переписке ${state.thread.messages.length} писем<select aria-label="Письмо в переписке" data-message>${[...state.thread.messages].reverse().map(m=>`<option value="${esc(m.id)}" ${m.id===state.message?'selected':''}>${esc(date(m.date)+' · '+name(m.from))}</option>`).join('')}</select></label>`:''}${state.bodyError?`<p class="error">${esc(state.bodyError)} <button class="btn" data-action="retry-body">Повторить</button></p>`:!body?'<p class="mr-muted">Загружаю оригинал…</p>':'<div class="mr-email-body"></div>'}${body?.attachments?.length?`<div class="mr-attachments"><span>Вложения</span>${body.attachments.map(a=>`<a href="${esc(gmailLink())}" target="_blank" rel="noopener noreferrer">▧ ${esc(a.name)} ↗</a>`).join('')}<small>Открываются в Gmail</small></div>`:''}</article></div>`;
-      if(body){
+      if(keep){reader.querySelector('.mr-mail-scroll')?.replaceWith(keep);}
+      else if(body){
         const rendered=emailDocument(body,{document:doc,remote:state.remote,zoom:state.zoom}),host=reader.querySelector('.mr-email-body');
         if(rendered.blockedImages&&!state.remote||body.omittedImages){const button=doc.createElement('button');button.className='mr-images';button.textContent=body.omittedImages?'Некоторые изображения доступны в Gmail':'Показать внешние изображения';button.dataset.action=body.omittedImages?'original':'images';host.append(button);}
         const frame=doc.createElement('iframe');frame.title='Содержимое письма';frame.className='mr-email-frame';frame.setAttribute('sandbox','allow-same-origin allow-popups allow-popups-to-escape-sandbox');frame.referrerPolicy='no-referrer';
@@ -115,15 +119,27 @@
     }
     function draw(){
       if(disposed)return;
+      const existing=container.querySelector('.mail-workspace');
+      if(existing){
+        existing.classList.toggle('has-selection',!!state.selected);
+        container.querySelector('.mr-letters').innerHTML=listHTML();
+        container.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===state.filter));
+        const refresh=container.querySelector('[data-action="refresh"]');if(refresh)refresh.disabled=state.loading||state.busy;
+        const more=container.querySelector('.mr-more');if(more)more.hidden=state.nextOffset===null;
+        else if(state.nextOffset!==null)container.querySelector('.mr-list-pane').insertAdjacentHTML('beforeend','<button class="mr-more" data-action="more">Загрузить ещё</button>');
+        container.querySelector('.mr-alert')?.remove();
+        if(state.error)container.querySelector('.mr-header').insertAdjacentHTML('afterend',`<p class="mr-alert" role="alert">${esc(state.error)}${state.auth?'<button class="btn" data-action="login">Войти через Google</button>':''}</p>`);
+        drawReader();return;
+      }
       container.innerHTML=`<section class="mail-workspace ${state.selected?'has-selection':''}"><header class="mr-header"><div><h1>Почта</h1><p>Последние 7 дней · разбор 3 писем в цепочке</p></div><div><button class="btn" data-action="refresh" ${state.loading||state.busy?'disabled':''}>Обновить</button><button class="mr-text-button" data-action="settings">Настройки</button></div></header>${state.error?`<p class="mr-alert" role="alert">${esc(state.error)}${state.auth?'<button class="btn" data-action="login">Войти через Google</button>':''}</p>`:''}<div class="mr-workspace"><aside class="mr-list-pane" aria-label="Письма"><div class="mr-list-tools"><input type="search" data-search placeholder="Поиск по письмам" aria-label="Поиск по письмам" value="${esc(state.query)}"><div class="mr-mail-filters"><select aria-label="Письма по проекту" data-project-filter ${state.busy?'disabled':''}>${projectOptions(state.projectFilter,'Все проекты')}</select><select aria-label="Письма по человеку" data-person-filter ${state.busy?'disabled':''}><option value="">Все люди</option>${peopleOptions(null).map(p=>`<option value="${esc(p.id)}" ${p.id===state.personFilter?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div><div class="mr-filters"><button data-filter="all" class="${state.filter==='all'?'active':''}">Все письма</button><button data-filter="review" class="${state.filter==='review'?'active':''}">К решению</button></div></div><div class="mr-letters">${listHTML()}</div>${state.nextOffset!==null?'<button class="mr-more" data-action="more">Загрузить ещё</button>':''}</aside><div class="mr-reader" tabindex="-1"></div></div></section>`;
       drawReader();
     }
     async function load(append=false){
       const n=++listSequence;state.loading=true;state.error='';state.auth=false;draw();
-      try{const data=await request('letters?offset='+(append?state.nextOffset||0:0)+(state.projectFilter?'&project_id='+encodeURIComponent(state.projectFilter):'')+(state.personFilter?'&participant_id='+encodeURIComponent(state.personFilter):''));if(disposed||n!==listSequence)return;state.rows=append?[...new Map([...state.rows,...data.items].map(r=>[r.id,r])).values()]:data.items;state.nextOffset=data.nextOffset;}
+      try{const data=await request('letters?offset='+(append?state.nextOffset||0:0)+(state.filter==='review'?'&review=true':'')+(state.projectFilter?'&project_id='+encodeURIComponent(state.projectFilter):'')+(state.personFilter?'&participant_id='+encodeURIComponent(state.personFilter):''));if(disposed||n!==listSequence)return;state.rows=append?[...new Map([...state.rows,...data.items].map(r=>[r.id,r])).values()]:data.items;state.nextOffset=data.nextOffset;}
       catch(e){if(disposed||n!==listSequence)return;state.error=e.message;state.auth=e.status===401;}
       finally{if(!disposed&&n===listSequence){state.loading=false;draw();}}
-      if(!disposed&&n===listSequence&&!state.thread&&(state.selected||view.matchMedia('(min-width: 901px)').matches&&state.rows[0]?.id))await select(state.selected||state.rows[0].id,false);
+      if(!disposed&&n===listSequence&&sequence===0&&!state.thread&&(state.selected||view.matchMedia('(min-width: 901px)').matches&&state.rows[0]?.id))await select(state.selected||state.rows[0].id,false);
     }
     async function showMessage(id){
       const n=++bodySequence;state.message=id;state.proposalIndex=0;state.body=null;state.bodyError='';state.remote=false;drawReader();
@@ -137,7 +153,7 @@
       try{const data=await request('thread?id='+encodeURIComponent(id));if(disposed||n!==sequence)return false;state.thread=data;await showMessage(data.messages.at(-1)?.id);}
       catch(e){if(disposed||n!==sequence)return false;state.error=e.message;state.auth=e.status===401;draw();}return true;
     }
-    async function reloadThread(){const id=state.selected;const data=await request('thread?id='+encodeURIComponent(id));if(disposed||state.selected!==id)return;state.thread=data;drawReader();}
+    async function reloadThread(){const id=state.selected,n=sequence;if(!id)return;const data=await request('thread?id='+encodeURIComponent(id));if(disposed||state.selected!==id||sequence!==n)return;state.thread=data;const row=state.rows.find(r=>r.id===id);if(row)row.needs_review=data.records.filter(r=>r.source_meta?.delivery==='review'&&r.status==='ready'&&!r.source_meta?.superseded).length;draw();} 
     async function act(action,article){
       if(state.busy||state.linksDraft||!article)return;
       const record=state.thread.records.find(r=>r.id===article.dataset.record),change=record?.proposal?.changes?.find(c=>c.id===article.dataset.change);if(!change)return;
@@ -153,7 +169,7 @@
         pending={action,body:{revision:record.revision,request_id:view.crypto.randomUUID(),...(action==='apply'?{proposal:{version:1,changes:[edited]}}:{})}};state.requests.set(record.id,pending);
       }
       state.busy=true;state.actionError='';drawReader();
-      try{const result=await notes('/inbox/'+record.id+'/'+action,{method:'POST',body:pending.body});if(result.item?.id!==record.id)throw Error('Сервер не подтвердил действие. Повторите попытку.');state.requests.delete(record.id);Object.assign(record,result.item);state.editing=null;state.draft=null;if(['apply','defer'].includes(action))state.proposalIndex++;const row=state.rows.find(r=>r.id===state.selected);if(row)row.needs_review=Math.max(0,(row.needs_review||0)+(action==='resume'?1:-1));container.querySelector('.mr-letters').innerHTML=listHTML();await options.onChanged?.(result);}
+      try{const result=await notes('/inbox/'+record.id+'/'+action,{method:'POST',body:pending.body});if(result.item?.id!==record.id)throw Error('Сервер не подтвердил действие. Повторите попытку.');state.requests.delete(record.id);Object.assign(record,result.item);state.editing=null;state.draft=null;if(['apply','defer'].includes(action))state.proposalIndex++;const row=state.rows.find(r=>r.id===state.selected);if(row)row.needs_review=Math.max(0,(row.needs_review||0)+(action==='resume'?1:-1));container.querySelector('.mr-letters').innerHTML=listHTML();try{await options.onChanged?.(result);}catch{state.actionError='Действие сохранено. Обновите список задач.';}}
       catch(e){state.actionError=e.message;if([400,401,404,409,422].includes(e.status)){state.requests.delete(record.id);if(e.status===409)state.actionError='Предложение уже изменилось. Нажмите «Обновить» и проверьте актуальную версию.';}}
       finally{state.busy=false;if(!disposed)drawReader();}
     }
@@ -169,7 +185,7 @@
     async function click(event){
       const b=event.target.closest('button,a');if(!b||!container.contains(b))return;
       if(b.dataset.letter){await select(b.dataset.letter);return;}
-      if(b.dataset.filter){state.filter=b.dataset.filter;draw();return;}
+      if(b.dataset.filter){state.filter=b.dataset.filter;await load();return;}
       const action=b.dataset.action;
       if(b.dataset.removePerson&&state.linksDraft&&!state.busy&&!state.linksPending){state.linksDraft.participant_ids=state.linksDraft.participant_ids.filter(id=>id!==b.dataset.removePerson);drawReader();return;}
       if(action==='edit-links'){if(!canLeave())return;state.draft=null;state.editing=null;state.linksDraft=clone(state.thread.links||{project_id:null,participant_ids:[],revision:0});state.linksError='';drawReader();return;}
@@ -185,7 +201,7 @@
         try{const result=b.dataset.prepare?{item:record}:await notes('/inbox/'+record.id+'/analyze',{method:'POST',body:{revision:record.revision}});if(result.item?.status==='ready'&&record.source_meta?.delivery==='tasks')await notes('/inbox/'+record.id+'/deliverMail',{method:'POST',body:{}});await reloadThread();}
         catch(e){state.actionError=e.message;}finally{state.busy=false;if(!disposed)drawReader();}return;
       }
-      if(action==='refresh'){if(!canLeave())return;state.draft=null;state.editing=null;state.linksDraft=null;state.linksPending=null;await load();if(state.selected)await select(state.selected,false);return;}
+      if(action==='refresh'){if(!canLeave())return;state.draft=null;state.editing=null;state.linksDraft=null;state.linksPending=null;await load();if(state.selected)await reloadThread();return;}
       if(action==='more'){await load(true);return;}
       if(action==='settings'){options.onSettings?.();return;}
       if(action==='login'){options.onLogin?.();return;}

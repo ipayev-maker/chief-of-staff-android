@@ -93,13 +93,13 @@ export function createHandler({store, google, config, now = () => new Date(), ru
     if (!await ownerSession(request,current)) return json({authenticated:false,configured:true});
     const [bindings,tasks,meetings] = await Promise.all([
       store.list(BINDINGS,eq('connection_key',current.connection_key)),
-      store.list('commitments','select=id,description,status,deadline,deadline_at&order=id'),
+      store.list('commitments','select=id,description,status,deadline,deadline_at,next_check_at&order=id'),
       store.list('meetings','select=id,title,status,starts_at,ends_at,location,meeting_url,remind_before_minutes&order=id')
     ]);
     const bySource = new Map(bindings.map(row => [row.source_kind + ':' + row.source_id,row]));
     const counts = {synced:0,pending:0,errors:0,undatedTasks:0};
     const issues = [];
-    for (const [kind,records] of [['task',tasks],['meeting',meetings]]) {
+    for (const [kind,records] of [['task',tasks],['task_check',tasks.filter(t=>t.next_check_at)],['meeting',meetings]]) {
       for (const row of records) {
         const binding = bySource.get(kind + ':' + row.id);
         const projection = projector.projectCalendarRecord(kind,row,{timeZone:current.time_zone,generation:binding?.generation || 0});
@@ -110,7 +110,7 @@ export function createHandler({store, google, config, now = () => new Date(), ru
         }
         if (projection.kind === 'error' || binding?.state === 'error' || binding?.state === 'conflict') {
           counts.errors++;
-          issues.push({kind,id:row.id,title:kind === 'task' ? row.description : row.title,reason:projection.kind === 'error' ? projection.reason : binding.last_error || 'calendar_conflict'});
+          issues.push({kind,id:row.id,title:kind !== 'meeting' ? row.description : row.title,reason:projection.kind === 'error' ? projection.reason : binding.last_error || 'calendar_conflict'});
         } else if (binding?.state === 'active' && binding.source_hash === await projectionHash(projection,current.connection_key)) counts.synced++;
         else counts.pending++;
       }
@@ -123,13 +123,15 @@ export function createHandler({store, google, config, now = () => new Date(), ru
     const requestedReturn = form.get('return_to');
     const returnTo = inboxReturnTo(requestedReturn);
     if (requestedReturn !== null && requestedReturn !== '' && !returnTo) return json({error:'invalid_return_to'},400);
+    const prior=await connection();
+    if(!bridgeForm&&prior?.status==='connected'&&await ownerSession(request,prior))return redirect(request.headers.get('Origin')+'/?calendar=connected'+(returnTo||'#/today'));
     if(!bridgeForm&&request.headers.get('Origin')===PUBLIC_ORIGIN)return beginTransfer('calendar',{time_zone:timeZone,return_to:returnTo});
     const state = randomToken();
     const browserSecret = randomToken();
     const verifier = randomToken(48);
     await store.remove(STATES,'expires_at=lt.' + queryValue(timestamp()));
     await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browserSecret),verifier,time_zone:timeZone,return_to:returnTo,...(bridgeForm?{return_challenge:bridgeForm.get('challenge')}:{}),expires_at:new Date(now().getTime()+600000).toISOString()});
-    return redirect(await google.authorizationUrl({state,verifier}),[cookie(FLOW_COOKIE,browserSecret,600)]);
+    return redirect(await google.authorizationUrl({state,verifier,consent:(await connection())?.status!=='connected'}),[cookie(FLOW_COOKIE,browserSecret,600)]);
   }
   async function callback(request,url) {
     const cleared = cookie(FLOW_COOKIE,'',0);

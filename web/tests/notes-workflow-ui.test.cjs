@@ -147,15 +147,13 @@ test('an unknown task POST outcome retries the exact request id and payload and 
   assert.equal(f.app.S.tasks.length,1);assert.equal(f.app.S.tasks[0].id,TASK_ID);assert.equal(f.app.S.taskDraft,null);
 });
 
-test('project note union retains a quick note and a legacy note with the same UUID',()=>{
+test('unified project notes use the migrated row once',()=>{
   const f=fixture(workflowExports),quick=quickRow(),legacy=legacyRow();
   f.app.S.project=f.app.S.projects[0];f.app.S.notes=[legacy];
   f.app.setQuickNotesScope(PROJECT_ID);f.app.QN.rows=[quick];
   const rows=f.app.projectNotesRows();
-  assert.equal(rows.length,2);
-  assert.equal(rows.find(item=>item.kind==='quick').note,quick);
-  assert.equal(rows.find(item=>item.kind==='project').note,legacy);
-  assert.notEqual(rows[0].kind+':'+rows[0].note.id,rows[1].kind+':'+rows[1].note.id);
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].kind,'quick');assert.equal(rows[0].note,quick);assert.equal(f.app.S.notes[0],legacy);
 });
 
 test('switching project scope invalidates an older load so it cannot reveal or overwrite the new project',async()=>{

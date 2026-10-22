@@ -1,3 +1,5 @@
+import {automaticReviewChanges} from '../cos-notes/communication-mail-auto.mjs';
+import {replyMetadata} from './followups.mjs';
 import {inScope,searchQuery,selectMessages,snapshot,validId,MAIL_MESSAGE_LIMIT} from './mail.mjs';
 const eq=(k,v)=>k+'=eq.'+encodeURIComponent(v);
 const THREADS='cos_gmail_threads',CONNECTION='cos_gmail_connection';
@@ -62,6 +64,7 @@ export async function importThread({store,mail,connection,thread,now=()=>new Dat
   if(!inScope(messages,connection.settings)){
     await store.patch(THREADS,eq('thread_id',thread.thread_id),{pending:false,last_error:null});return {imported:false};
   }
+  if(typeof store.rpc==='function')await store.rpc('cos_gmail_observe_replies',{p_thread:thread.thread_id,p_messages:replyMetadata(messages)});
   const automatic=connection.settings.auto_tasks===true;
   const contextDays=automatic?7:thread.context_days,limit=MAIL_MESSAGE_LIMIT;
   // A pending review is immutable until reviewed. Leave new mail queued, so
@@ -103,8 +106,9 @@ export async function syncMail({store,mail,connection,now=()=>new Date(),analyze
   let delivered=0,delivery_errors=0;
   const deliverReady=async()=>{
     if(!automatic||!connection.settings.ai_consent||!deliver)return;
-    const rows=await store.page('cos_communication_inbox','select=id&source_meta->>delivery=eq.tasks&status=in.(ready,error)&order=created_at.asc&limit=20');
-    const results=await Promise.allSettled(rows.map(row=>deliver(row)));
+    const rows=await store.page('cos_communication_inbox','select=id,status,source_text,source_meta,proposal&source_meta->>delivery=in.(tasks,review)&status=in.(ready,error)&order=created_at.desc&limit=100');
+    const eligible=rows.filter(row=>row.source_meta?.delivery!=='review'||connection.settings.review_before_create!==true&&automaticReviewChanges(row).length===1).slice(0,20);
+    const results=[];for(let i=0;i<eligible.length;i+=4)results.push(...await Promise.allSettled(eligible.slice(i,i+4).map(row=>deliver(row))));
     for(const result of results){if(result.status==='fulfilled'&&result.value?.item?.status==='applied')delivered++;else if(result.status==='rejected')delivery_errors++;}
   };
   await deliverReady();
@@ -147,6 +151,8 @@ export async function syncMail({store,mail,connection,now=()=>new Date(),analyze
     }
   }
   await deliverReady();
+  const checks=await store.page('cos_gmail_followups','select=thread_id&status=eq.waiting&order=checked_at.asc.nullsfirst,check_at.asc&limit=5');
+  for(const id of new Set(checks.map(r=>r.thread_id))){const metadata=await mail.thread(id);if(metadata.id&&metadata.id!==id)throw Error('invalid_gmail_response');await store.rpc('cos_gmail_observe_replies',{p_thread:id,p_messages:replyMetadata(metadata.messages||[])});}
   if(delivery_errors)throw Error('mail_delivery_failed');
   const failed=imports.find(r=>r.status==='rejected');if(failed)throw failed.reason;
   return {ok:true,queued:found.queued,imported,waiting,analyzed,analysis_errors,recovered,delivered};
