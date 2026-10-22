@@ -16,10 +16,10 @@ export function createMailReader({store,mail}){
     if(!row?.inbox_id)fail(404,'thread_unavailable');
     return row;
   }
-  async function list(offset=0,{projectId=null,participantId=null}={}){
+  async function list(offset=0,{projectId=null,participantId=null,review=false}={}){
     if(projectId&&!UUID.test(projectId)||participantId&&!UUID.test(participantId))fail(400,'invalid_links');
     if(!Number.isSafeInteger(offset)||offset<0||offset>100000)fail(400,'invalid_pagination');
-    const rows=await store.page('cos_gmail_threads','select=thread_id,subject,inbox_id,updated_at,pending,project_id'+(participantId?',mail_people:cos_gmail_thread_participants!inner(participant_id)':'')+'&inbox_id=not.is.null'+(projectId?'&project_id=eq.'+projectId:'')+(participantId?'&mail_people.participant_id=eq.'+participantId:'')+'&order=updated_at.desc,thread_id.asc&limit=51&offset='+offset);
+    const rows=await store.page('cos_gmail_mailbox','select=thread_id,subject,inbox_id,updated_at,pending,project_id,last_message_at,review_count'+(participantId?',mail_people:cos_gmail_thread_participants!inner(participant_id)':'')+'&inbox_id=not.is.null'+(projectId?'&project_id=eq.'+projectId:'')+(participantId?'&mail_people.participant_id=eq.'+participantId:'')+(review?'&review_count=gt.0':'')+'&order=last_message_at.desc,thread_id.asc&limit=51&offset='+offset);
     const page=rows.slice(0,50),ids=page.map(r=>r.inbox_id);
     const people=page.length?await store.list('cos_gmail_thread_participants','select=thread_id,participant_id&thread_id=in.('+page.map(r=>r.thread_id).join(',')+')&order=position.asc'):[];
     const sources=ids.length?await store.list('cos_communication_inbox','select=id,status,source_meta,proposal&id=in.('+ids.join(',')+')'):[];

@@ -19,7 +19,7 @@
     try { storage.setItem(RECENT_KEY, JSON.stringify([{id, at: now}, ...readRecent(storage, now).filter(row => row.id !== id)].slice(0, 100))); } catch {}
   }
   function groups(people, tasks, projectId, recent = []) {
-    const byId = new Map(people.filter(p => p?.id && normalize(p.name)).map(p => [p.id, p]));
+    const byId = new Map(people.filter(p => p?.id && !p.archived_at && !p.deleted_at && normalize(p.name)).map(p => [p.id, p]));
     const project = new Set(tasks.filter(t => !t.deleted_at && projectId && t.project_id === projectId).map(t => t.participant_id));
     const timestamps = new Map(recent.map(row => [row.id, row.at]));
     const compare = (a, b) => (timestamps.get(b.id) || 0) - (timestamps.get(a.id) || 0) || normalize(a.name).localeCompare(normalize(b.name), 'ru') || a.id.localeCompare(b.id);

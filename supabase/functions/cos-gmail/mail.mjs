@@ -1,14 +1,14 @@
 // No mailbox-wide body fetch: select eligible message IDs from metadata first.
 export const GMAIL_SCOPES = Object.freeze(['openid','email','https://www.googleapis.com/auth/gmail.readonly']);
 export const MAIL_MESSAGE_LIMIT=3;
-export const DEFAULT_SETTINGS = Object.freeze({label_ids:[],emails:[],enabled:false,ai_consent:false,auto_tasks:false,review_before_create:true,initial_days:7,context_days:7,message_limit:MAIL_MESSAGE_LIMIT});
+export const DEFAULT_SETTINGS = Object.freeze({label_ids:[],emails:[],enabled:false,ai_consent:false,auto_tasks:false,review_before_create:false,initial_days:7,context_days:7,message_limit:MAIL_MESSAGE_LIMIT});
 export const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 export const email = value => typeof value === 'string' && /^[a-zA-Z0-9.!#$%&'*+\-/=?^_`{|}~]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/.test(value) ? value.toLowerCase() : null;
 export function settings(value) {
   if (!value || !Array.isArray(value.label_ids) || !Array.isArray(value.emails) || value.label_ids.length>20 || value.emails.length>50 ||
       value.label_ids.some(id=>!validId(id)||['SPAM','TRASH','DRAFT'].includes(id)) || value.emails.some(v=>!email(v)) ||
       typeof value.enabled!=='boolean' || typeof value.ai_consent!=='boolean' || value.auto_tasks!==undefined&&typeof value.auto_tasks!=='boolean') throw Error('invalid_settings');
-  const result={...DEFAULT_SETTINGS,label_ids:[...new Set(value.label_ids)],emails:[...new Set(value.emails.map(email))],enabled:value.enabled,ai_consent:value.ai_consent,auto_tasks:value.auto_tasks===true,review_before_create:value.review_before_create!==false};
+  const result={...DEFAULT_SETTINGS,label_ids:[...new Set(value.label_ids)],emails:[...new Set(value.emails.map(email))],enabled:value.enabled,ai_consent:value.ai_consent,auto_tasks:value.auto_tasks===true,review_before_create:value.review_before_create===true};
   if(result.enabled&&!result.label_ids.length&&!result.emails.length)throw Error('scope_required');
   return result;
 }
@@ -78,7 +78,7 @@ export function snapshot(messages,{threadId,selection,ownerEmail,processedIds=[]
   }
   for(const {message,date,rendered,truncated} of retained){
     const start=source.length;source+=rendered;
-    meta.messages.push({id:message.id,date,from:header(message,'from').slice(0,300),email:addresses(header(message,'from'))[0]||null,to_emails:addresses(header(message,'to')),start,end:source.length,truncated});
+    meta.messages.push({id:message.id,date,automatic_reply:!!header(message,'auto-submitted')&&!/^no$/i.test(header(message,'auto-submitted'))||/auto_reply|auto-reply|bulk|list/i.test(header(message,'precedence')),from:header(message,'from').slice(0,300),email:addresses(header(message,'from'))[0]||null,to_emails:addresses(header(message,'to')),start,end:source.length,truncated});
     if(!processedIds.includes(message.id))meta.new_message_ids.push(message.id);
   }
   meta.partial ||= meta.omitted_messages>0;

@@ -1,0 +1,20 @@
+begin;
+set local role service_role;
+set local request.jwt.claim.role='service_role';
+set local request.jwt.claims='{"role":"service_role"}';
+do $$ declare n uuid;box uuid;c uuid:=gen_random_uuid();r jsonb;t uuid;a uuid; begin
+ insert into public.quick_notes(source,plain_text,document) values('web','',jsonb_build_object('version',1,'blocks','[]'::jsonb)) returning id into n;
+ insert into public.cos_communication_inbox(note_id,source_text,status,source_meta,proposal) values(n,'Synthetic outgoing request','ready',jsonb_build_object('type','gmail','thread_id','synthetic_followup','owner_email','owner@example.com','new_message_ids',jsonb_build_array('sent'),'messages',jsonb_build_array(jsonb_build_object('id','sent','email','owner@example.com','to_emails',jsonb_build_array('recipient@example.com'),'date','2030-01-01T09:00:00Z'))),jsonb_build_object('changes',jsonb_build_array(jsonb_build_object('id',c,'kind','task_create','mail_intent','request','mail_relation','waiting_for_other','source_message_id','sent')))) returning id into box;
+ r:=public.cos_inbox_apply(box,1,gen_random_uuid(),jsonb_build_array(jsonb_build_object('id',c,'kind','task_create','task',jsonb_build_object('description','Synthetic followup','direction','to_me','status','open','next_check_at','2030-01-01T12:00:00Z','next_check_on','2030-01-01'))));
+ t:=(r->'result'->'tasks'->0->>'id')::uuid;
+ if t is null or not exists(select 1 from public.cos_gmail_followups where task_id=t and status='waiting') then raise exception 'followup not registered atomically';end if;
+ perform public.cos_gmail_observe_replies('synthetic_followup','[{"id":"robot","from":"recipient@example.com","at":"2030-01-01T10:00:00Z","automatic":true}]');
+ if not exists(select 1 from public.commitments where id=t and next_check_at is not null) then raise exception 'automatic reply cleared reminder';end if;
+ perform public.cos_gmail_observe_replies('synthetic_followup','[{"id":"human","from":"recipient@example.com","at":"2030-01-01T11:00:00Z","automatic":false}]');
+ if not exists(select 1 from public.commitments where id=t and next_check_at is null and status='open') then raise exception 'reply did not clear only the reminder';end if;
+ if not exists(select 1 from public.cos_gmail_followups where task_id=t and reply_message_id='human') then raise exception 'reply not recorded';end if;
+ insert into public.cos_note_assets(note_id,storage_bucket,storage_path,original_name,mime_type,size_bytes) values(n,'cos-note-media',n||'/synthetic','synthetic.png','image/png',10) returning id into a;
+ begin perform public.cos_note_media_complete(n,a);raise exception 'missing upload accepted';exception when sqlstate 'PT400' then null;end;
+ if not (select pending from public.cos_note_assets where id=a) then raise exception 'unconfirmed asset published';end if;
+end $$;
+rollback;

@@ -83,11 +83,13 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
     return result.status===409?redirect('error','connection_busy',[cleared]):result;
   }
   async function start(request,challenge=null){
+        const prior=await current();
+        if(!challenge&&prior?.status==='connected'&&await authorized(request,prior))return new Response(null,{status:303,headers:{...headers,Location:request.headers.get('Origin')+'/?gmail=connected#/mail'}});
         if(!challenge&&request.headers.get('Origin')===PUBLIC_ORIGIN)return beginTransfer('gmail');
         const state='gmail.'+randomToken(),browser=randomToken(),verifier=randomToken(48);
         await store.remove(STATES,'expires_at=lt.'+encodeURIComponent(stamp()));
         await store.insert(STATES,{state_hash:await sha256(state),browser_hash:await sha256(browser),verifier,...(challenge?{return_challenge:challenge}:{}),expires_at:new Date(+now()+600000).toISOString()});
-        const target=new URL(await google.authorizationUrl({state,verifier}));
+        const target=new URL(await google.authorizationUrl({state,verifier,consent:prior?.status!=='connected'}));
         target.searchParams.set('login_hint',config.allowedEmail.trim().toLowerCase());
         const h=new Headers({...headers,Location:target.href,'Set-Cookie':cookie(FLOW,browser,600)});
         return new Response(null,{status:303,headers:h});
@@ -109,7 +111,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
         if(!await authorized(request,connection))return json({error:'unauthorized'},401);
         if(!connection)return json({error:'not_connected'},409);
         const reader=createMailReader({store,mail});
-        try{return json(route==='letters'?await reader.list(Number(url.searchParams.get('offset')||0),{projectId:url.searchParams.get('project_id'),participantId:url.searchParams.get('participant_id')}):route==='thread'?await reader.thread(url.searchParams.get('id'),connection):await reader.message(url.searchParams.get('thread'),url.searchParams.get('id'),connection));}
+        try{return json(route==='letters'?await reader.list(Number(url.searchParams.get('offset')||0),{projectId:url.searchParams.get('project_id'),participantId:url.searchParams.get('participant_id'),review:url.searchParams.get('review')==='true'}):route==='thread'?await reader.thread(url.searchParams.get('id'),connection):await reader.message(url.searchParams.get('thread'),url.searchParams.get('id'),connection));}
         catch(error){const code=['invalid_links','invalid_thread','invalid_message','invalid_pagination','thread_unavailable','mail_too_large'].includes(error.reason)?error.reason:reason(error);return json({error:code},[400,404,413].includes(error.status)?error.status:503);}
       }
       if(route==='status'&&request.method==='GET'){

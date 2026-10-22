@@ -250,7 +250,7 @@ export function createGoogle({config, fetchImpl = fetch, scopes = GOOGLE_SCOPES}
   }
 
   return {
-    async authorizationUrl({state, verifier}) {
+    async authorizationUrl({state, verifier, consent=true}) {
       if (typeof state !== 'string' || !/^[A-Za-z0-9._~-]{32,512}$/.test(state)) fail('invalid_oauth_state');
       validateVerifier(verifier);
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
@@ -258,7 +258,7 @@ export function createGoogle({config, fetchImpl = fetch, scopes = GOOGLE_SCOPES}
       url.search = new URLSearchParams({
         client_id: clientId, redirect_uri: CALLBACK_URL, response_type: 'code',
         scope: scopes.join(' '), state, access_type: 'offline',
-        prompt: 'consent select_account', code_challenge_method: 'S256',
+        ...(consent?{prompt:'consent select_account'}:{}), code_challenge_method: 'S256',
         code_challenge: base64url(new Uint8Array(digest)),
       }).toString();
       return url.href;

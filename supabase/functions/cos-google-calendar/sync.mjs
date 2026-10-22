@@ -7,7 +7,8 @@
  */
 const BINDINGS = 'cos_calendar_bindings';
 const SOURCES = {
-  task: {table:'commitments', select:'id,description,status,deadline,deadline_at,planned_on,next_check_on'},
+  task: {table:'commitments', select:'id,description,status,deadline,deadline_at,planned_on,next_check_on,next_check_at'},
+  task_check: {table:'commitments'},
   meeting: {table:'meetings', select:'id,title,status,starts_at,ends_at,location,meeting_url,remind_before_minutes'}
 };
 const RETRY_DELAY_MS = 60_000;
@@ -125,7 +126,7 @@ export async function syncCalendar({store, connection, google, projector, now=()
       store.list(SOURCES.meeting.table,'select='+SOURCES.meeting.select+'&order=id.asc',{timeoutMs:remaining()}),
       store.list(BINDINGS,'connection_key=eq.'+encodeURIComponent(connectionKey)+'&order=source_kind.asc,source_id.asc',{timeoutMs:remaining()})
     ]);
-    entries = [...validateSnapshot(snapshots[0],'task'),...validateSnapshot(snapshots[1],'meeting')];
+    entries = [...validateSnapshot(snapshots[0],'task'),...validateSnapshot(snapshots[0].filter(t=>t.next_check_at),'task_check'),...validateSnapshot(snapshots[1],'meeting')];
     bindings = snapshots[2];
     if (!Array.isArray(bindings)) throw Error();
   } catch { if (remaining()<=0) return {...result,truncated:true};throw codedError('source_snapshot_failed'); }

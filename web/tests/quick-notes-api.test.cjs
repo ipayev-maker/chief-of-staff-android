@@ -155,16 +155,16 @@ test('create accepts an empty title, keeps note text and optionally links a proj
   assert.equal(created.project_id, PROJECT);
   assert.equal(created.source, 'web');
   assert.equal(created.revision, 1);
-  assert.deepEqual(f.calls.find(call => call.operation === 'insert').values, {title:'',plain_text:'  Useful text\nsecond line  ',project_id:PROJECT,source:'web'});
+  assert.deepEqual(f.calls.find(call => call.operation === 'insert').values, {title:'',plain_text:'  Useful text\nsecond line  ',project_id:PROJECT,source:'web',document:null});
 });
 
-test('create/PATCH reject empty text, invalid project and caller-controlled source/archival metadata', async () => {
+test('create/PATCH reject invalid project and caller-controlled source/archival metadata', async () => {
   const f = await fixture();
-  for (const body of [{plain_text:' \n '}, {plain_text:'x',source:'telegram'}, {plain_text:'x',project_id:'bad'},
+  for (const body of [{plain_text:'x',source:'telegram'}, {plain_text:'x',project_id:'bad'},
     {plain_text:'x',archived_at:TIME.toISOString()}, {plain_text:'x',title:'a'.repeat(301)}, {plain_text:'x'.repeat(64001)}]) {
     assert.equal((await f.handler(f.request({method:'POST',body}))).status, 400);
   }
-  for (const body of [{revision:1,plain_text:''}, {revision:1,source_message_id:ID}, {revision:1,archived_at:null}, {revision:1}, {revision:0,title:'new'}]) {
+  for (const body of [{revision:1,source_message_id:ID}, {revision:1,archived_at:null}, {revision:1}, {revision:0,title:'new'}]) {
     assert.equal((await f.handler(f.request({method:'PATCH',path:'/' + ID,body}))).status, 400);
   }
   assert.equal(f.calls.some(call => ['insert','patch'].includes(call.operation)), false);
@@ -172,7 +172,7 @@ test('create/PATCH reject empty text, invalid project and caller-controlled sour
 
 test('body byte limit is enforced for streams with absent or dishonest Content-Length', async () => {
   const f = await fixture();
-  const bytes = new TextEncoder().encode(JSON.stringify({plain_text:'漢'.repeat(45000)}));
+  const bytes = new TextEncoder().encode(JSON.stringify({plain_text:'漢'.repeat(180000)}));
   for (const declared of [undefined, '1']) {
     let offset = 0;
     const stream = new ReadableStream({pull(controller) {
