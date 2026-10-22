@@ -1,7 +1,7 @@
 // Run with NODE_PATH pointing to an installed Playwright package; Chromium required.
-const {chromium}=require('playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require(process.env.COS_PLAYWRIGHT||'playwright'),fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict');
 (async()=>{
- const root=path.resolve(__dirname,'..'),browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+ const root=path.resolve(__dirname,'..'),c=process.env.COS_CHROMIUM_PACKAGE?(await import(process.env.COS_CHROMIUM_PACKAGE)).default:{args:['--no-sandbox']},browser=await chromium.launch({headless:true,args:c.args,...(process.env.COS_CHROMIUM_PATH?{executablePath:process.env.COS_CHROMIUM_PATH}:{})});
  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[],network=[];
  page.on('pageerror',e=>errors.push(e.message));
  const fixture=`
@@ -13,9 +13,11 @@ const {chromium}=require('playwright'),fs=require('node:fs/promises'),path=requi
  const records=[{id:'parent',status:'applied',source_meta:{delivery:'tasks',messages},proposal:{summary:'Поставщик прислал параметры образца. До запуска нужно подтвердить размеры и выбрать цвет металла.'}},...[[c1,'Подтвердить размеры образца'],[c2,'Согласовать цвет металла']].map(([id,text])=>({id,revision:1,status:'ready',source_meta:{delivery:'review',review_parent_id:'parent',messages},proposal:{changes:[change(id,text)]}}))];
  window.readerRecords=records;window.readerCalls=[];window.applyUncertain=true;
  const rows=[{id:'t1',from:messages[1].from,subject:messages[1].subject,date:messages[1].date,summary:'Параметры образца и два решения перед запуском.',needs_review:2},{id:'t2',from:'Мария <maria@example.com>',subject:'Доставка оборудования на площадку',date:'2026-10-21T08:00:00Z',summary:'Детали доставки и пропуска на разгрузку.'},{id:'t3',from:'Андрей <andrey@example.com>',subject:'Re: Чертежи для производства',date:'2026-10-20T15:00:00Z',summary:'Обновлённые чертежи во вложении.'}];
+ window.readerRows=rows;window.manualTaskWrites=[];
+ api=async(p,init={})=>{if(init.method==='POST'&&p==='/rest/v1/commitments'){window.manualTaskWrites.push(init.body);return [{id:'33333333-3333-4333-8333-333333333333',...init.body,cos_version:1,created_at:new Date().toISOString()}]}return []};
  window.CoSGmail.request=async (action,body)=>{window.readerCalls.push(action);const u=new URL('https://test/'+action);if(u.pathname==='/links'){Object.assign(links,body,{revision:links.revision+1});return {ok:true,links:structuredClone(links)};}if(u.pathname==='/letters')return {items:rows,nextOffset:null};if(u.pathname==='/thread')return {id:u.searchParams.get('id'),subject:messages[1].subject,messages,links:structuredClone(links),owner_email:'owner@example.com',records:structuredClone(records)};if(u.pathname==='/message')return {id:u.searchParams.get('id'),html:'<p>Добрый день!</p><p>Подготовили параметры первого образца. Просьба подтвердить размеры и выбрать цвет металла, чтобы передать комплект в производство.</p><table style="border-collapse:collapse;width:100%;font:15px Arial"><tr style="background:#f1f4f8"><th style="text-align:left;padding:14px">Параметр</th><th style="text-align:left;padding:14px">Значение</th></tr><tr><td style="padding:14px;border-bottom:1px solid #e4e9ef">Габариты</td><td style="padding:14px;border-bottom:1px solid #e4e9ef">600 × 400 × 1800 мм</td></tr><tr><td style="padding:14px">Материал</td><td style="padding:14px">Металл, порошковая окраска</td></tr></table><p>После согласования сообщим дату готовности.</p><p>С уважением,<br>Антон</p><script>parent.xss=true<'+'/script><img src="https://tracker.invalid/pixel" onerror="parent.xss=true"><iframe src="https://tracker.invalid/frame"></iframe><form action="https://tracker.invalid"><input value="bad"></form><a href="javascript:parent.xss=true">unsafe</a>',inline:[],attachments:[{name:'Чертёж стойки.pdf'}]};throw Error(action);};
- quickNotesRequest=async(url,init)=>{window.readerCalls.push({url,body:structuredClone(init.body)});if(window.applyUncertain&&url.endsWith('/apply')){window.applyUncertain=false;throw Error('Ответ не получен. Повторите.');}const r=records.find(r=>url.includes(r.id));r.status=url.endsWith('/defer')?'deferred':url.endsWith('/resume')?'ready':'applied';r.revision++;return {item:structuredClone(r),result:{tasks:[]}};};
- S.projects=[{id:'project1',title:'Интершарм',status:'active'},{id:'old',title:'Архивный',status:'completed'}];S.participants=[{id:'p1',name:'Антон'},{id:'p2',name:'Мария'}];
+ quickNotesRequest=async(url,init={})=>{if(!init.method||init.method==='GET')return {source:null,origins:[]};window.readerCalls.push({url,body:structuredClone(init.body)});if(window.applyUncertain&&url.endsWith('/apply')){window.applyUncertain=false;throw Error('Ответ не получен. Повторите.');}const r=records.find(r=>url.includes(r.id));r.status=url.endsWith('/defer')?'deferred':url.endsWith('/resume')?'ready':'applied';r.revision++;return {item:structuredClone(r),result:{tasks:[]}};};
+ S.areas=[{key:'work',title:'Основная работа'}];S.projects=[{id:'project1',title:'Интершарм',status:'active',area_key:'work'},{id:'old',title:'Архивный',status:'completed'}];S.participants=[{id:'p1',name:'Антон'},{id:'p2',name:'Мария'}];
  persistNewProject=async(id,body)=>{const row={id,...body};S.projects.push(row);return row};S.section='mail';initDashboardNavigation();render();
  });`;
  const original=await fs.readFile(path.join(root,'index.html'),'utf8');
@@ -39,6 +41,23 @@ const {chromium}=require('playwright'),fs=require('node:fs/promises'),path=requi
  await page.locator('[data-letter="t1"]').click();await page.locator('.mr-email-frame').waitFor();assert.equal(await page.locator('.mr-list-pane').isVisible(),false);assert.ok(await page.locator('.mr-reader').isVisible());
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
  await page.screenshot({path:'/tmp/mail-reader-mobile.png'});
- assert.deepEqual(errors,[]);console.log('PASS: desktop/mobile reading, HTML isolation, zero tracking requests, one-action acceptance, stable retry ID, edit, reject, restore, active-project filtering.');
+ // A letter with no AI proposals still has a useful manual action, even in the review workflow.
+ await page.evaluate(()=>{window.readerRecords.splice(1);window.readerRows.forEach(r=>r.needs_review=0)});
+ await page.getByRole('button',{name:'← Письма',exact:true}).click();
+ await page.getByRole('button',{name:'К решению',exact:true}).click();await page.getByRole('button',{name:'Показать все письма',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Показать все письма',exact:true}).click();await page.locator('[data-letter="t1"]').click();
+ const manual=page.locator('[data-action="create-task"]');await manual.waitFor();assert.ok(await manual.isVisible());
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await page.screenshot({path:'/tmp/mail-manual-task-mobile.png'});
+ await page.getByRole('button',{name:'Изменить связи'}).click();await page.getByLabel('Проект переписки',{exact:true}).selectOption('');
+ page.once('dialog',dialog=>dialog.dismiss());await manual.click();assert.equal(await page.locator('#tdDesc').count(),0,'cancelled navigation preserves link draft');
+ await page.getByRole('button',{name:'Отмена',exact:true}).click();await manual.click();await page.locator('#tdDesc').waitFor();
+ assert.equal(await page.locator('#tdProject').inputValue(),'project1');assert.equal(await page.locator('#tdParticipant').inputValue(),'p1');assert.equal(await page.locator('#tdArea').inputValue(),'work');
+ assert.match(await page.locator('#tdDetails').inputValue(),/Источник письма: https:\/\/nikodim\.vercel\.app\/#\/mail\/t1/);
+ assert.equal(await page.evaluate(()=>window.manualTaskWrites.length),0,'opening draft does not save it');
+ await page.locator('#tdDesc').fill('Заказать образец по письму');await page.locator('#taskSave').click();await page.locator('#taskCompleteWait').waitFor();
+ const created=await page.evaluate(()=>window.manualTaskWrites);assert.equal(created.length,1);assert.equal(created[0].description,'Заказать образец по письму');assert.equal(created[0].area_key,'work');
+ await page.locator('#taskMailSource').click();await page.locator('.mr-email-frame').waitFor();assert.equal(await page.locator('.mr-proposal').count(),0);assert.ok(await page.locator('[data-action="create-task"]').isVisible());
+ assert.deepEqual(errors,[]);console.log('PASS: desktop/mobile reading, HTML isolation, zero tracking requests, one-action acceptance, stable retry ID, edit, reject, restore, active-project filtering; empty review escape; manual task without proposals; retained mail/project/person; source navigation.');
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

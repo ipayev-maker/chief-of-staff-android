@@ -3,6 +3,7 @@ import {ProjectBriefError, getProjectBrief, saveProjectBrief} from './project-br
 import {ParticipantError, createParticipant, updateParticipant, archiveParticipant} from './participants.mjs';
 import {CommunicationInboxError, createCommunicationInbox} from './communication-inbox.mjs';
 import {APP_ORIGIN, sha256} from '../cos-google-calendar/google.mjs';
+import {taskOrigins} from './task-origins.mjs';
 
 const SESSION_COOKIE = '__Host-cos-calendar-session';
 const MAX_BODY_BYTES = 512 * 1024;
@@ -58,6 +59,9 @@ function resource(url) {
   if (!match) fail(404, 'not_found');
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
+  if (path === 'tasks/origins') return {kind: 'taskOrigins', methods: ['GET']};
+  const waitReply = /^tasks\/([^/]+)\/complete-wait$/.exec(path);
+  if(waitReply)return {kind:'completeWait',id:resourceUuid(waitReply[1]),methods:['POST']};
   if (path === 'inbox') return {kind: 'inboxList', methods: ['GET']};
   const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel|deliverMail|setContext))?$/.exec(path);
   if (inbox) return {kind: 'inbox', id: resourceUuid(inbox[1]), action: inbox[2] || 'get', methods: [!inbox[2] || inbox[2] === 'audio' ? 'GET' : 'POST']};
@@ -274,6 +278,17 @@ export function createNotesHandler({store, media, now = () => new Date(), inbox 
       if (!route.methods.includes(method)) return json({error: 'method_not_allowed'}, 405);
       if (method !== 'GET' && !allowedOrigin(request.headers.get('Origin'))) fail(403, 'invalid_origin');
       await authenticate(request);
+      if(route.kind==='completeWait'){
+        if(url.search)fail(400,'invalid_request');
+        const data=await readJson(request);
+        if(Object.keys(data).some(k=>!['version','request_id','patch'].includes(k))||!Number.isSafeInteger(data.version)||data.version<1||!UUID.test(data.request_id||'')||!data.patch||typeof data.patch!=='object'||Array.isArray(data.patch))fail(400,'invalid_request');
+        try{return json(await store.rpc('cos_task_complete_wait',{p_id:id,p_version:data.version,p_request_id:data.request_id,p_patch:data.patch}))}
+        catch(error){const status={PT400:400,PT404:404,PT409:409,PT423:423}[error.code];if(status)fail(status,/^[a-z_]+$/.test(error.message||'')?error.message:'wait_request_failed');throw error;}
+      }
+      if (route.kind === 'taskOrigins') {
+        if([...url.searchParams.keys()].some(k=>k!=='ids')||url.searchParams.getAll('ids').length!==1)fail(400,'invalid_request');
+        try{return json(await taskOrigins(store,url.searchParams.get('ids')))}catch(error){if(error.code==='invalid_request')fail(400,'invalid_request');throw error;}
+      }
       if (route.kind === 'inboxList') {
         const allowed = new Set(['status', 'limit', 'offset', 'scope']);
         if ([...url.searchParams.keys()].some(key => !allowed.has(key) || url.searchParams.getAll(key).length !== 1)) fail(400, 'invalid_request');

@@ -40,6 +40,18 @@ test('mail routes round trip and actionable suggestions stay tied to the selecte
  assert.deepEqual(reader.proposalsForMessage(records,'m1').map(x=>x.change.id),['a']);assert.equal(reader.safeLink('javascript:alert(1)'),null);
 });
 
+test('manual task from mail uses selected message and saved links without inventing a deadline or choosing among people',()=>{
+ const {taskDraftFromMail}=require('../mail-reader.js');
+ const context={projects:[{id:'active',status:'active',area_key:'work'},{id:'old',status:'completed'}],participants:[{id:'p1',name:'Антон'},{id:'p2',name:'Мария'},{id:'gone',name:'Архивный',archived_at:'2026-10-01'}]};
+ const thread={id:'t1',subject:'Общая тема',messages:[{id:'m1',subject:'Согласование образца',from:'Антон <anton@example.com>'},{id:'m2',subject:'Новая тема'}],links:{project_id:'active',participant_ids:['p1','gone']}};
+ const draft=taskDraftFromMail(thread,'m1',context);
+ assert.equal(draft.description,'Согласование образца');assert.equal(draft.project_id,'active');assert.equal(draft.participant_id,'p1');assert.equal(draft.area_key,'work');assert.equal(draft.deadline,undefined);
+ assert.match(draft.details,/Источник письма: https:\/\/nikodim\.vercel\.app\/#\/mail\/t1/);
+ thread.links={project_id:'old',participant_ids:['p1','p2']};const ambiguous=taskDraftFromMail(thread,'m2',context);
+ assert.equal(ambiguous.project_id,null);assert.equal(ambiguous.participant_id,null);assert.equal(ambiguous.area_key,'work');assert.match(ambiguous.details,/Антон, Мария/);
+ assert.equal(taskDraftFromMail(thread,'foreign',context),null);assert.equal(taskDraftFromMail({...thread,id:'../bad'},'m1',context),null);
+});
+
 test('thread link writes validate complete data and map optimistic conflicts without leaking DB errors',async()=>{
  const {saveThreadLinks}=await import(base+'links.mjs');const calls=[],person='22222222-2222-4222-8222-222222222222';
  const store={rpc:async(name,args)=>{calls.push({name,args});return {project_id:id,participant_ids:[person],revision:3}}};
