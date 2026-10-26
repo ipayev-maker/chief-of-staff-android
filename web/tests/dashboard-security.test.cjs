@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const token='a'.repeat(43),origin='https://nikodim.vercel.app',now=()=>new Date('2026-10-26T12:00:00Z');
 async function fixture({session='owner',expires='2026-11-01T00:00:00Z'}={}){
  const {createDashboardHandler}=await import('../../supabase/functions/cos-dashboard/handler.mjs');const reads=[],calls=[],removed=[];
- const store={list:async(t,q)=>{reads.push([t,q]);return t==='cos_calendar_connection'?[{google_sub:'owner',email:'owner@example.test'}]:session?[{google_sub:session,expires_at:expires}]:[]},remove:async(...args)=>removed.push(args),page:async()=>[]};
+ const store={rpc:async()=>({authenticated:true,unlocked:true,setupRequired:false,retryAfter:0}),list:async(t,q)=>{reads.push([t,q]);return t==='cos_calendar_connection'?[{google_sub:'owner',email:'owner@example.test'}]:session?[{google_sub:session,expires_at:expires}]:[]},remove:async(...args)=>removed.push(args),page:async()=>[]};
  const handler=createDashboardHandler({store,url:'https://db.example.test',serviceKey:'server-only-secret',now,fetchImpl:async(url,opt)=>{calls.push({url:String(url),...opt});return new Response('[]',{headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Content-Range':'0-0/1'}})}});
  const request=(route,options={})=>new Request(origin+'/api/data'+route,{...options,headers:{Cookie:'__Host-cos-calendar-session='+token,...(options.method&&options.method!=='GET'?{Origin:origin}:{}),...options.headers}});
  return {handler,request,reads,calls,removed};

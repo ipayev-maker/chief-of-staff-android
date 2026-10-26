@@ -5,6 +5,7 @@ import { createHandler } from './handler.mjs';
 import {createGmailHandler} from '../cos-gmail/handler.mjs';
 import {GMAIL_SCOPES} from '../cos-gmail/mail.mjs';
 import {createCommunicationInbox,createInboxModel} from '../cos-notes/communication-inbox.mjs';
+import {withPinGate} from '../_shared/dashboard-pin.mjs';
 
 // Supabase provides these server-only credentials. Never serialize them to clients.
 const store = createStore({url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')});
@@ -21,7 +22,7 @@ Deno.serve(async (request: Request) => {
       // Only the exact server-configured Gmail address can authorize mail.
       const gmailConfig={...config,allowedEmail:config.gmailAllowedEmail??config.allowedEmail};
       const gmail=createGmailHandler({store,google:createGoogle({config:gmailConfig,scopes:GMAIL_SCOPES}),config:gmailConfig,analyze:item=>inbox.process(item),recover:item=>inbox.recover(item.id),deliver:item=>inbox.deliverMail(item.id),health:()=>modelHealth({key:Deno.env.get('OPENROUTER_KEY')})});
-      cachedHandler=request=>{const url=new URL(request.url);return url.pathname.includes('/gmail/')||url.pathname.endsWith('/callback')&&url.searchParams.get('state')?.startsWith('gmail.')?gmail(request):calendar(request)};
+      cachedHandler=withPinGate(request=>{const url=new URL(request.url);return url.pathname.includes('/gmail/')||url.pathname.endsWith('/callback')&&url.searchParams.get('state')?.startsWith('gmail.')?gmail(request):calendar(request)},{store,google:true});
       cacheUntil = Date.now() + 60000;
     }
     return await cachedHandler(request);

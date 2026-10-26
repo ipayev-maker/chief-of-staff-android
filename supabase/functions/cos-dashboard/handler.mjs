@@ -1,4 +1,6 @@
 import {ownerSession,validBrowserRequest,PRIVATE_HEADERS,SESSION_COOKIE} from '../_shared/owner-session.mjs';
+import {pinStatus,pinCookie,pinProof} from '../_shared/dashboard-pin.mjs';
+import {randomToken,sha256} from '../cos-google-calendar/google.mjs';
 const TABLES=new Set(['projects','commitments','participants','cos_areas','meetings','meeting_participants','meeting_minutes','project_notes','note_assets','commitment_assets','time_entries','commitment_links','project_task_layout']);
 const FUNCTIONS=new Set(['cos-capture-chat','cos-meeting-minutes']);
 const BUCKETS=new Set(['project-media','cos-note-media']);
@@ -9,6 +11,7 @@ function resource(url){
  let path=url.pathname.replace(/^\/(?:functions\/v1\/cos-dashboard|cos-dashboard|api\/data)(?=\/|$)/,'');
  if(url.pathname==='/api/session')path='/session';
  if(url.pathname==='/api/session/logout')path='/logout';
+ if(url.pathname.startsWith('/api/session/pin/'))path=url.pathname.slice('/api/session'.length);
  if(!path.startsWith('/')||/%|\\|[\x00-\x20]/.test(path)){
   try{path=decodeURIComponent(path)}catch{failure(400,'invalid_path')}
  }
@@ -29,12 +32,39 @@ export function createDashboardHandler({store,url,serviceKey,fetchImpl=fetch,now
    const input=new URL(request.url),path=resource(input);
    if(!validBrowserRequest(request))return json({error:'invalid_origin'},403);
    const session=await ownerSession(store,request,now);
-   if(path==='/session'&&request.method==='GET')return json({authenticated:!!session,...(session?{email:session.email}:{})});
+   if(path==='/session'&&request.method==='GET'){
+    if(!session)return json({authenticated:false});
+    const state=await pinStatus(store,request);
+    if(!state.authenticated)return json({authenticated:false});
+    return json({authenticated:true,email:session.email,pinRequired:!state.unlocked,pinSetupRequired:state.setupRequired,retryAfter:state.retryAfter||0});
+   }
    if(!session)return json({error:'unauthorized'},401);
    if(path==='/logout'&&request.method==='POST'){
     await store.remove('cos_calendar_sessions','token_hash=eq.'+session.tokenHash);
-    const response=json({ok:true});response.headers.set('Set-Cookie',SESSION_COOKIE+'=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0');return response;
+    const response=json({ok:true});response.headers.append('Set-Cookie',SESSION_COOKIE+'=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0');response.headers.append('Set-Cookie',pinCookie(''));return response;
    }
+   if(path==='/pin/lock'&&request.method==='POST'){
+    await store.remove('cos_dashboard_pin_sessions','session_hash=eq.'+session.tokenHash);
+    const response=json({ok:true});response.headers.set('Set-Cookie',pinCookie(''));return response;
+   }
+   if(['/pin/setup','/pin/unlock'].includes(path)&&request.method==='POST'){
+    if(input.search||(request.headers.get('Content-Type')||'').split(';')[0]!=='application/json')failure(400,'invalid_pin');
+    let data;try{data=JSON.parse(new TextDecoder().decode(await boundedBody(request,256)))}catch(error){if(error.status)throw error;failure(400,'invalid_pin')}
+    const setup=path==='/pin/setup';
+    if(!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).some(k=>!['pin',...(setup?['confirmation']:[])].includes(k))||typeof data.pin!=='string'||!/^\d{4}$/.test(data.pin)||setup&&data.confirmation!==data.pin)failure(400,'invalid_pin');
+    const config=await store.rpc('cos_calendar_get_config',{}),token=randomToken();
+    const result=await store.rpc('cos_dashboard_pin_unlock',{p_session_hash:session.tokenHash,p_proof:await pinProof(data.pin,config?.tokenKey),p_unlock_hash:await sha256(token),p_setup:setup});
+    if(result?.ok!==true){
+     const status={unauthorized:401,pin_incorrect:400,pin_locked:429,pin_already_configured:409,pin_setup_required:409,invalid_pin:400}[result?.error];
+     if(!status)failure(503,'pin_unavailable');
+     const response=json({error:result.error,...(result.retryAfter?{retryAfter:result.retryAfter}:{})},status);
+     if(result.retryAfter)response.headers.set('Retry-After',String(result.retryAfter));return response;
+    }
+    const response=json({ok:true});response.headers.set('Set-Cookie',pinCookie(token));return response;
+   }
+   const pin=await pinStatus(store,request);
+   if(!pin.authenticated)return json({error:'unauthorized'},401);
+   if(!pin.unlocked)return json({error:'pin_required',setupRequired:pin.setupRequired},423);
    let target,storage=false;
    const rest=/^\/rest\/v1\/([a-z_]+)$/.exec(path),fn=/^\/(?:ai|functions\/v1)\/([a-z-]+)$/.exec(path);
    if(rest&&TABLES.has(rest[1])&&['GET','HEAD','POST','PATCH','DELETE'].includes(request.method)){
