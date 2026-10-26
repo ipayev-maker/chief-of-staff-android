@@ -6,16 +6,22 @@ const extraNumber=/^\s+(?:\d|ноль|один|одна|дв[ае]|три|чет
 export function clockEvidence(source){
   if(typeof source!=='string')return [];
   const pattern=/(?<![\p{L}\d])(?:в|на|к|до)\s+(\d{1,2})(?:([:.])(\d{2})|(\s+час(?:а|ов)?))?(?![\p{L}\d:/-]|\.\d)/giu;
-  const numeric=[...source.matchAll(pattern)].map(m=>({text:m[0],index:m.index,hour:Number(m[1]),minute:Number(m[3]||0),
+  const numericCandidates=[...source.matchAll(pattern)].map(m=>({text:m[0],index:m.index,hour:Number(m[1]),minute:Number(m[3]||0),
     time:Number(m[1])<24&&Number(m[3]||0)<60?m[1].padStart(2,'0')+':'+(m[3]||'00'):null,
     // "до 21.10" can mean a date: only в/на disambiguate a dotted clock.
     dottedDate:m[2]==='.'&&/^(?:до|к)\s/iu.test(m[0])&&Number(m[1])<=31&&Number(m[3])>=1&&Number(m[3])<=12
-  })).filter(c=>!c.dottedDate);
+  }));
+  const numeric=numericCandidates.filter(c=>!c.dottedDate&&!/^на\s+\d+\s+час/iu.test(c.text)&&!/^\s*(?:sku|скю|штук\p{L}*|шт\.?|позиц\p{L}*|ряд\p{L}*|линии|мм|см|кг|руб\p{L}*|дн(?:я|ей)|день|недел\p{L}*|месяц\p{L}*|процент\p{L}*|%|[xх×])(?=$|[^\p{L}])/iu.test(source.slice(c.index+c.text.length)));
+  const bare=[...source.matchAll(/(?<![\p{L}\d./:-])(\d{1,2})([:.])(\d{2})(?![\p{L}\d./:-])/gu)].filter(m=>{
+    if(numericCandidates.some(c=>m.index>=c.index&&m.index<c.index+c.text.length))return false;
+    if(/^\s*(?:sku|мм|см|шт|руб)(?=$|[^\p{L}])/iu.test(source.slice(m.index+m[0].length)))return false;
+    return m[2]===':'||m[3]==='00'||/(?:сегодня|завтра|послезавтра|понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)\s*[,—-]?\s*$/iu.test(source.slice(0,m.index));
+  }).map(m=>({text:m[0],index:m.index,hour:+m[1],minute:+m[3],bare:true,time:+m[1]<24&&+m[3]<60?m[1].padStart(2,'0')+':'+m[3]:null}));
   const words=[...source.matchAll(new RegExp('(?<![\\p{L}\\d])(?:в|на|к|до)\\s+('+spoken+')(?![\\p{L}\\d])(?:\\s+час(?:а|ов)?(?!\\p{L}))?','giu'))].map(m=>{
     const hour=numbers.indexOf(m[1].toLocaleLowerCase('ru').replace(/\s+/g,' '));
     return {text:m[0],index:m.index,hour,minute:0,time:String(hour).padStart(2,'0')+':00'};
   });
-  return [...numeric,...words].sort((a,b)=>a.index-b.index).map(clock=>{
+  return [...numeric,...bare,...words].sort((a,b)=>a.index-b.index).map(clock=>{
     const tail=source.slice(clock.index+clock.text.length);
     // Unsupported/malformed spoken minutes must not become a confident hour.
     // "двенадцать три часа" is neither 12:00 nor 12:03.

@@ -193,3 +193,25 @@ test('owner text correction is not overwritten by upgrading speech recognition',
  const {item}=await createCommunicationInbox(fixture).analyze(id,{revision:1,correction:'Встреча с Соколовой 21.10.2026 в 12:00.'});
  assert.equal(item.status,'ready');assert.equal(item.transcript,'Старая расшифровка.');assert.equal(item.proposal.corrections.length,1);
 });
+
+test('owner adds a task or meeting to a taskless source without AI or business writes; retry is idempotent',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);
+ for(const kind of ['task_create','meeting_create']){
+  const f=setup({source:'Салават пятница'}),service=createCommunicationInbox(f);const request=uuid();
+  const first=await service.addAction(id,{revision:1,request_id:request,kind});
+  assert.equal(first.item.status,'ready');assert.equal(first.item.proposal.changes.length,1);
+  assert.equal(first.item.proposal.changes[0].kind,kind);assert.equal(first.item.proposal.changes[0].manual,true);
+  assert.equal(f.calls.some(c=>c[0]==='model'||c[0]==='cos_inbox_apply'),false);
+  const again=await service.addAction(id,{revision:1,request_id:request,kind});assert.equal(again.item.revision,first.item.revision);assert.equal(again.item.proposal.changes.length,1);
+  await assert.rejects(()=>service.addAction(id,{revision:1,request_id:request,kind:kind==='task_create'?'meeting_create':'task_create'}),e=>e.status===409);
+  f.setRow({status:'processing'});await assert.rejects(()=>service.addAction(id,{revision:first.item.revision,request_id:uuid(),kind}),e=>e.status===409);
+ }
+});
+test('manual task can become a meeting with explicit date and time, but cannot target an arbitrary existing task',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);const f=setup({source:'Салават пятница'}),service=createCommunicationInbox(f);
+ let {item}=await service.addAction(id,{revision:1,request_id:uuid(),kind:'task_create'});
+ const changed={...item.proposal.changes[0],kind:'meeting_create',meeting_date:'2026-10-02',meeting_time:'12:00',duration_minutes:30,status:null};
+ await assert.rejects(()=>service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:[{...changed,task_id:uuid()}]}}),e=>e.code==='invalid_proposal');
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:[changed]}});
+ const action=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0];assert.equal(action.kind,'meeting_create');assert.equal(action.meeting.starts_at,'2026-10-02T10:00:00.000Z');
+});

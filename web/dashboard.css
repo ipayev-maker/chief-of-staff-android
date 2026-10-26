@@ -32,10 +32,10 @@ input::placeholder, textarea::placeholder { color: #7c8795; font-weight: 400; }
 .brand small, .nik small { font-size: 11px; }
 .logo { width: 31px; height: 31px; border-radius: 9px; background: #344b66; font-size: 14px; font-weight: 600; box-shadow: none; }
 .sidebar nav { gap: 4px; }
-.sidebar nav button { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; color: #606d7f; }
-.sidebar nav button.active { background: #ecf1f7; color: #365678; box-shadow: none; }
-.sidebar nav button:hover:not(:disabled):not(.active) { background: #f2f4f7; box-shadow: none; color: #344b66; }
-.sidebar nav button:disabled { opacity: .46; }
+.sidebar nav :is(button,a[data-sec]) { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; color: #606d7f; }
+.sidebar nav :is(button,a[data-sec]).active { background: #ecf1f7; color: #365678; box-shadow: none; }
+.sidebar nav :is(button,a[data-sec]):hover:not(:disabled):not(.active) { background: #f2f4f7; box-shadow: none; color: #344b66; }
+.sidebar nav :is(button,a[data-sec]):disabled { opacity: .46; }
 .nav-icon { width: 17px; height: 17px; flex: 0 0 17px; stroke-width: 1.5; }
 .calendar-settings-trigger, .nik { border-color: var(--line); border-radius: 9px; box-shadow: none; font-weight: 500; }
 .calendar-settings-trigger { min-height: 42px; padding: 9px 11px; margin-bottom: 7px; }
@@ -188,7 +188,7 @@ input::placeholder, textarea::placeholder { color: #7c8795; font-weight: 400; }
   .sidebar { padding: 9px 12px 8px; background: #fcfcfd; }
   .brand { padding: 0; }
   .sidebar nav { gap: 3px; margin-top: 9px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .sidebar nav button[data-sec] { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; height: 44px; min-height: 44px; padding: 5px 2px; border-radius: 7px; font-size: 10px; }
+  .sidebar nav :is(button,a[data-sec])[data-sec] { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 3px; height: 44px; min-height: 44px; padding: 5px 2px; border-radius: 7px; font-size: 10px; }
   .nav-icon { width: 15px; height: 15px; flex-basis: 15px; }
   .calendar-settings-trigger { width: auto; min-width: 0; min-height: 40px; max-width: none; flex-direction: row; gap: 6px; padding: 7px 10px; margin-bottom: 0; margin-left: auto; border-radius: 7px; font-size: 11px; white-space: nowrap; }
   .nik { padding: 0; width: 40px; height: 40px; min-height: 40px; margin-left: 7px; border-radius: 7px; }

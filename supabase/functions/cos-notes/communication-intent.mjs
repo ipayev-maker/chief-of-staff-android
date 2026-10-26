@@ -56,3 +56,15 @@ export function recoverPreparationTask(raw,{source,corrections=[]}){
   }
   return raw;
 }
+
+// Short owner commands remain actionable even when the model returns no changes.
+// Ambiguous fragments, quotations, conditions and completed actions stay notes.
+export function recoverDirectTask(raw,{source,corrections=[]}){
+  if(raw.changes?.length||corrections.length||typeof source!=='string'||source.length>1000||/[?!«»“”"\n]/u.test(source)||/(?:^|[^\p{L}])(?:не|если|возможно|например|уже|вчера|отмен\p{L}*)(?:$|[^\p{L}])/iu.test(source))return raw;
+  const verbs={запроси:'Запросить',сделай:'Сделать',подготовь:'Подготовить',отправь:'Отправить',проверь:'Проверить',уточни:'Уточнить',согласуй:'Согласовать',напиши:'Написать',позвони:'Позвонить',свяжись:'Связаться'};
+  const match=source.trim().match(/^(?:(?:мне\s+)?(?:надо|нужно|необходимо)\s+)?(запроси(?:ть)?|сделай|сделать|подготовь|подготовить|отправь|отправить|проверь|проверить|уточни(?:ть)?|согласуй|согласовать|напиши|написать|позвони(?:ть)?|свяжись|связаться)\s+(.+)$/iu);
+  if(!match)return raw;
+  const verb=match[1].toLocaleLowerCase('ru'),title=(verbs[verb]||verb[0].toUpperCase()+verb.slice(1))+' '+match[2];
+  const date=source.match(/(?<!\p{L})(?:(?:до|к|на|в)\s+)?(?:сегодня|завтра|послезавтра|понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)(?!\p{L})(?:\s+(?:в\s+)?\d{1,2}[:.]\d{2})?/iu)?.[0]||null;
+  return {...raw,questions:[],summary:title,changes:[{kind:'task_create',text:title,evidence:source,project_id:null,participant_id:null,direction:'internal',status:'open',date_text:date,date_status:date?'explicit':'none',date_kind:/^(?:до|к)\s/iu.test(date||'')?'deadline':'work'}]};
+}

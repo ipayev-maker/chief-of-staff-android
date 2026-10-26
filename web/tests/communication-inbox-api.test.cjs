@@ -3,7 +3,7 @@ const ID='00000000-0000-4000-8000-000000000001',ORIGIN='https://chief-of-staff-v
 async function fixture(){
  const {createNotesHandler}=await import('../../supabase/functions/cos-notes/handler.mjs');const {CommunicationInboxError}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');const calls=[];
  const store={async list(table){return table==='cos_calendar_connection'?[{google_sub:'owner'}]:[{google_sub:'owner',expires_at:'2027-01-01T00:00:00Z'}]}};
- const inbox={};for(const method of ['list','get','analyze','apply','defer','resume','cancel'])inbox[method]=async(...args)=>{calls.push([method,...args]);return method==='list'?{items:[],nextOffset:null}:{item:{id:ID,revision:2,status:'ready'}}};inbox.audio=async id=>{calls.push(['audio',id]);return new Response(new Uint8Array([79,103,103,83]),{headers:{'Content-Type':'audio/ogg','Cache-Control':'private, no-store'}})};
+ const inbox={};for(const method of ['list','get','analyze','apply','defer','resume','cancel','addAction'])inbox[method]=async(...args)=>{calls.push([method,...args]);return method==='list'?{items:[],nextOffset:null}:{item:{id:ID,revision:2,status:'ready'}}};inbox.audio=async id=>{calls.push(['audio',id]);return new Response(new Uint8Array([79,103,103,83]),{headers:{'Content-Type':'audio/ogg','Cache-Control':'private, no-store'}})};
  const handler=createNotesHandler({store,inbox,now:()=>new Date('2026-09-29T12:00:00Z')});
  const request=(path,{method='GET',owner=true,origin=ORIGIN,body}={})=>new Request(ORIGIN+'/api/notes'+path,{method,headers:{...(owner?{Cookie:'__Host-cos-calendar-session='+TOKEN}:{}),Origin:origin,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
  return{handler,inbox,calls,request,CommunicationInboxError};
@@ -36,3 +36,5 @@ test('mail suggestion list and restore keep the existing owner and origin bounda
  const f=await fixture();assert.equal((await f.handler(f.request('/inbox?scope=mail&status=all'))).status,200);assert.equal(f.calls[0][1].scope,'mail');
  const path='/inbox/'+ID+'/resume';assert.equal((await f.handler(f.request(path,{method:'POST',owner:false,body:{revision:1,request_id:ID}}))).status,401);assert.equal((await f.handler(f.request(path,{method:'POST',origin:'https://evil.invalid',body:{revision:1,request_id:ID}}))).status,403);
 });
+
+ test('manual action route preserves owner and origin checks',async()=>{const f=await fixture(),path='/inbox/'+ID+'/addAction',body={revision:1,request_id:ID,kind:'meeting_create'};assert.equal((await f.handler(f.request(path,{method:'POST',owner:false,body}))).status,401);assert.equal((await f.handler(f.request(path,{method:'POST',origin:'https://evil.invalid',body}))).status,403);assert.equal((await f.handler(f.request(path,{method:'POST',body}))).status,200);assert.deepEqual(f.calls,[['addAction',ID,body]]);});

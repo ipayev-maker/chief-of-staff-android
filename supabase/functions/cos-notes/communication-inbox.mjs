@@ -5,7 +5,7 @@ import {mailAnalysisWindow} from '../cos-gmail/mail.mjs';
 import {dateEvidence, exactDay, validDay} from '../telegram-webhook/date-evidence.mjs';
 import {emptyProjectBrief, validateProjectBriefDocument} from './project-brief.mjs';
 import {recoverAppointment,sourceAppointment} from './communication-schedule.mjs';
-import {participantFor,recoverPreparationTask} from './communication-intent.mjs';
+import {participantFor,recoverPreparationTask,recoverDirectTask} from './communication-intent.mjs';
 import {MAIL_INSTRUCTIONS,mailEvidence,restoreMailEvidence} from './communication-mail.mjs';
 import {clockEvidence} from '../telegram-webhook/time-evidence.mjs';
 import {splitMailProposal,automaticReviewChanges} from './communication-mail-auto.mjs';
@@ -93,6 +93,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
   if(item.source_meta?.type!=='gmail'){
     const source=item.transcript||item.source_text||'';
     raw=recoverPreparationTask(raw,{source,corrections});
+    raw=recoverDirectTask(raw,{source,corrections});
     raw=recoverAppointment(raw,{source,corrections,refDate:sourceInstant(item),timeZone});
   }
   else raw={...raw,changes:raw.changes.map(value=>restoreMailEvidence(value,item))};
@@ -197,7 +198,7 @@ function editableProposal(input,persisted,{allowUnresolved=false}={}){
   const ids=new Set();const originals=new Map(persisted.changes.map(c=>[c.id,c]));
   const changes=input.changes.map(change=>{
     const original=originals.get(change?.id);
-    if(!object(change)||!original||ids.has(change.id)||change.kind!==original.kind||change.evidence!==original.evidence||
+    if(!object(change)||!original||ids.has(change.id)||(change.kind!==original.kind&&!(['task_create','meeting_create'].includes(original.kind)&&['task_create','meeting_create'].includes(change.kind)))||change.evidence!==original.evidence||
       change.task_id!==original.task_id||change.task_version!==original.task_version||typeof change.selected!=='boolean'||
       !text(change.text,2000,false)||!nullableId(change.project_id)||!nullableId(change.participant_id)||
       !DIRECTION.includes(change.direction)||change.deadline!==null&&!validDay(change.deadline)||
@@ -205,7 +206,7 @@ function editableProposal(input,persisted,{allowUnresolved=false}={}){
       change.deadline_time&&!change.deadline||change.status!==null&&!STATUS.includes(change.status)||
       change.entry_kind!==null&&!['decision','question'].includes(change.entry_kind)||
       change.brief_revision!==null&&(!Number.isSafeInteger(change.brief_revision)||change.brief_revision<0||change.brief_revision>MAX_REVISION))fail(400,'invalid_proposal');
-    if(own(original,'planned_on')&&(change.planned_on!==null&&!validDay(change.planned_on)||change.planned_time!==null&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(change.planned_time)||change.planned_time&&!change.planned_on))fail(400,'invalid_work_time');
+    if((own(original,'planned_on')||change.kind==='task_create')&&(change.planned_on!=null&&!validDay(change.planned_on)||change.planned_time!=null&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(change.planned_time)||change.planned_time&&!change.planned_on))fail(400,'invalid_work_time');
     if(!allowUnresolved&&change.selected&&change.kind.startsWith('project_')&&(!change.project_id||change.brief_revision===null))fail(400,'project_required');
     if(change.kind==='project_entry'&&!change.entry_kind)fail(400,'invalid_proposal');
     if(change.kind.startsWith('task_')&&!change.status)fail(400,'invalid_proposal');
@@ -214,8 +215,8 @@ function editableProposal(input,persisted,{allowUnresolved=false}={}){
       !Number.isSafeInteger(change.duration_minutes)||change.duration_minutes<1||change.duration_minutes>1440||
       !allowUnresolved&&change.selected&&(!change.meeting_date||!change.meeting_time)))fail(400,'invalid_meeting_time');
     ids.add(change.id);
-    return {...clone(original),selected:change.selected,text:change.text.trim(),project_id:change.project_id,participant_id:change.participant_id,
-      ...(own(original,'planned_on')?{planned_on:change.planned_on,planned_time:change.planned_time,work_date_intent:!!original.work_date_intent||change.planned_on!==original.planned_on||change.planned_time!==original.planned_time}:{}),
+    return {...clone(original),kind:change.kind,...(change.kind!==original.kind?{manual:true}:{}),selected:change.selected,text:change.text.trim(),project_id:change.project_id,participant_id:change.participant_id,
+      ...(own(original,'planned_on')||change.kind==='task_create'?{planned_on:change.planned_on??null,planned_time:change.planned_time??null,work_date_intent:!!original.work_date_intent||change.planned_on!==original.planned_on||change.planned_time!==original.planned_time}:{}),
       direction:change.direction,deadline:change.deadline,deadline_time:change.deadline_time,next_check_on:change.next_check_on,status:change.status,
       entry_kind:change.entry_kind,brief_revision:change.brief_revision,
       date_intent:!!original.date_intent||change.deadline!==original.deadline||change.deadline_time!==original.deadline_time,
@@ -262,6 +263,23 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     const owner_context={project_id:data.project_id,participant_ids:[...new Set(data.participant_ids)]};
     const changes=(item.proposal?.changes||[]).map(c=>['task_create','meeting_create'].includes(c.kind)?{...c,project_id:data.project_id,...(owner_context.participant_ids.length===1?{participant_id:owner_context.participant_ids[0]}:{})}:c);
     return {item:await update(item,{proposal:{...item.proposal,owner_context,changes}})};
+  }
+  async function addAction(id,data){
+    if(!object(data)||Object.keys(data).some(k=>!['revision','request_id','kind'].includes(k))||!revision(data.revision)||!UUID.test(data.request_id||'')||!['task_create','meeting_create'].includes(data.kind))fail(400,'invalid_request');
+    const {item}=await get(id),prior=(item.proposal?.changes||[]).find(c=>c.id===data.request_id);
+    if(prior){if(!prior.manual||prior.kind!==data.kind)fail(409,'inbox_conflict');return {item};}
+    if(item.revision!==data.revision||['processing','applied'].includes(item.status)||item.source_meta?.superseded)fail(409,'inbox_conflict');
+    if((item.proposal?.changes||[]).length>=30)fail(400,'invalid_proposal');
+    const context=await contextFor(store),owner=item.proposal?.owner_context||{},time_zone=item.proposal?.time_zone||await zone();
+    const source=(item.transcript||item.source_text||'').replace(/^\[Голосовое сообщение\]$/u,'').trim().slice(0,2000);
+    const change={id:data.request_id,kind:data.kind,manual:true,selected:true,text:source,evidence:source,
+      project_id:context.projects.some(p=>p.id===owner.project_id)?owner.project_id:null,
+      participant_id:owner.participant_ids?.length===1&&context.participants.some(p=>p.id===owner.participant_ids[0])?owner.participant_ids[0]:null,
+      task_id:null,task_version:null,status:data.kind==='task_create'?'open':null,direction:'internal',entry_kind:null,brief_revision:null,
+      deadline:null,deadline_time:null,next_check_on:null,planned_on:null,planned_time:null,date_intent:false,work_date_intent:false};
+    if(data.kind==='meeting_create')Object.assign(change,{meeting_date:null,meeting_time:null,duration_minutes:30,duration_estimated:true},sourceAppointment(change,{full:source,refDate:sourceInstant(item),timeZone:time_zone})||{});
+    const proposal={version:1,summary:'',questions:[],...item.proposal,time_zone,changes:[...(item.proposal?.changes||[]),change]};
+    return {item:await update(item,{status:'ready',error_code:null,proposal},data.request_id)};
   }
   async function list({status='pending',limit=50,offset=0,scope='inbox'}={}){
     if(!['inbox','mail'].includes(scope)||!['pending','deferred','applied','all'].includes(status)||!Number.isSafeInteger(limit)||limit<1||limit>100||!Number.isSafeInteger(offset)||offset<0||offset>1000000)fail(400,'invalid_pagination');
@@ -445,5 +463,5 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     proposal.analysis={...analysis,status:'completed',recovered:true};delete proposal.analysis.result;
     return {item:await update(item,{status:'ready',error_code:null,proposal})};
   }
-  return {get,list,setContext,analyze,recover,process:item=>analyze(item.id,{revision:item.revision}),apply,autoApply,deliverMail,cancel,defer,resume,audio};
+  return {get,list,setContext,addAction,analyze,recover,process:item=>analyze(item.id,{revision:item.revision}),apply,autoApply,deliverMail,cancel,defer,resume,audio};
 }
