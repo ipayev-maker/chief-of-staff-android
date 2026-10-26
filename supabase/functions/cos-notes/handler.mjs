@@ -63,7 +63,7 @@ function resource(url) {
   const waitReply = /^tasks\/([^/]+)\/complete-wait$/.exec(path);
   if(waitReply)return {kind:'completeWait',id:resourceUuid(waitReply[1]),methods:['POST']};
   if (path === 'inbox') return {kind: 'inboxList', methods: ['GET']};
-  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel|deliverMail|setContext))?$/.exec(path);
+  const inbox = /^inbox\/([^/]+)(?:\/(analyze|apply|defer|resume|audio|cancel|deliverMail|setContext|addAction))?$/.exec(path);
   if (inbox) return {kind: 'inbox', id: resourceUuid(inbox[1]), action: inbox[2] || 'get', methods: [!inbox[2] || inbox[2] === 'audio' ? 'GET' : 'POST']};
   const asset=/^([^/]+)\/assets(?:\/(prepare|complete|remove))?$/.exec(path);
   if(asset)return {kind:'media',id:resourceUuid(asset[1]),action:asset[2]||'list',methods:[asset[2]?'POST':'GET']};

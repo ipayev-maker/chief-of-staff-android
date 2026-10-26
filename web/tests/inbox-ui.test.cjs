@@ -367,11 +367,11 @@ test('participant authorization expiry preserves name and proposal until returni
   f.controller.dispose();
 });
 
-test('named participant suggestion prefills creation next to the task without opening the full editor',async()=>{
+test('named participant suggestion prefills creation with visible action fields',async()=>{
  const row=item({proposal:{version:1,time_zone:'Europe/Moscow',questions:[],changes:[change({text:'Подобрать задачи для Антона',participant_id:null,participant_suggestion:{name:'Антон',mention:'Антона',existing_ids:[]},planned_on:'2026-10-06',planned_time:'09:30',deadline:null})]}});
  let writes=0;const f=fixture(async(path,opt)=>{if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};if(path===`/inbox/${ID}`)return {item:row};writes++;return {participant:opt.body};},{selectedId:ID,participants:[]});
  await flush();assert.equal(writes,0);assert.match(f.container.innerHTML,/Новый участник: <b>Антон<\/b>/);assert.match(f.container.innerHTML,/6 окт. 2026 в 09:30 · Москва/);
- await click(f,'participant-new',{ciChange:CHANGE});assert.match(f.container.innerHTML,/data-ci-field="participant_name" value="Антон"/);assert.doesNotMatch(f.container.innerHTML,/data-ci-field="project_id"/);
+ await click(f,'participant-new',{ciChange:CHANGE});assert.match(f.container.innerHTML,/data-ci-field="participant_name" value="Антон"/);assert.match(f.container.innerHTML,/data-ci-field="project_id"/);
  await click(f,'participant-save');assert.equal(writes,1);assert.match(f.container.innerHTML,/Участник: Антон/);assert.doesNotMatch(f.container.innerHTML,/Новый участник:/);assert.match(f.container.innerHTML,/Создать задачу/);f.controller.dispose();
 });
 
@@ -379,4 +379,23 @@ test('suggested existing participant is selected explicitly without writing a ne
  const row=item({proposal:{version:1,changes:[change({participant_id:null,participant_suggestion:{name:'Анна',existing_ids:[PERSON]}})]}});
  let writes=0;const f=fixture(async(path,opt)=>{if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};if(path===`/inbox/${ID}`)return {item:row};writes++;},{selectedId:ID});
  await flush();await click(f,'participant-select',{ciChange:CHANGE,ciPerson:PERSON});assert.equal(writes,0);assert.match(f.container.innerHTML,/Участник: Анна/);f.controller.dispose();
+});
+
+test('taskless inbox offers manual actions; retry keeps one request and opens editable meeting fields',async()=>{
+ let row=item({proposal:{version:1,changes:[]}});const sent=[];
+ const f=fixture(async(path,opt)=>{if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};if(path===`/inbox/${ID}`)return {item:row};sent.push(opt.body);if(sent.length===1)throw Error('network');row={...row,revision:3,proposal:{...row.proposal,changes:[change({id:REQUEST,kind:'meeting_create',meeting_date:null,meeting_time:null,duration_minutes:30,status:null,manual:true})]}};return {item:row};},{selectedId:ID});
+ await flush();assert.match(f.container.innerHTML,/＋ Создать задачу/);assert.match(f.container.innerHTML,/＋ Назначить встречу/);
+ await click(f,'add-action',{ciKind:'meeting_create'});assert.match(f.container.innerHTML,/Проверить добавление/);
+ await click(f,'add-action',{ciKind:'meeting_create'});assert.deepEqual(sent[0],sent[1]);assert.match(f.container.innerHTML,/data-ci-field="meeting_time"/);assert.match(f.container.innerHTML,/data-ci-field="project_id"/);
+ await click(f,'apply');assert.equal(sent.length,2);assert.match(f.container.innerHTML,/Укажите дату, время начала и длительность встречи/);f.controller.dispose();
+});
+test('confirming action saves message links first and retains individual title and project edits',async()=>{
+ let row=item();const calls=[];
+ const f=fixture(async(path,opt)=>{
+  if(path.startsWith('/inbox?'))return {items:[row],nextOffset:null};if(path===`/inbox/${ID}`)return {item:row};calls.push({path,body:opt.body});
+  if(path.endsWith('/setContext')){row={...row,revision:3,proposal:{...row.proposal,owner_context:{project_id:PROJECT,participant_ids:[]},changes:[change({project_id:PROJECT})]}};return {item:row};}
+  return {item:{...row,status:'applied',revision:4}};
+ },{selectedId:ID});
+ await flush();input(f,'context_project',PROJECT);input(f,'text','Моя правка');input(f,'project_id','');await click(f,'apply');
+ assert.equal(calls.length,2);assert.ok(calls[0].path.endsWith('/setContext'));assert.ok(calls[1].path.endsWith('/apply'));assert.equal(calls[1].body.revision,3);assert.equal(calls[1].body.proposal.changes[0].text,'Моя правка');assert.equal(calls[1].body.proposal.changes[0].project_id,null);f.controller.dispose();
 });

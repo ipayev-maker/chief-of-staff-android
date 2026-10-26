@@ -37,3 +37,14 @@ test('spoken clock hours retain exact time and reject unsupported number sequenc
   for(const [clock,time]of [['двенадцать','12:00'],['двенадцать часов','12:00'],['двадцать один','21:00'],['три часа дня','15:00'],['семь вечера','19:00'],['12 ночи','00:00']])assert.equal((await parse('Сегодня в '+clock+' встреча с Соколовой.'))?.meeting_time,time,clock);
   for(const clock of ['двенадцать три часа','12 03','двенадцать тридцать','12 минут','двадцать пять'])assert.equal(await parse('Сегодня в '+clock+' встреча с Соколовой.'),null,clock);
 });
+
+test('terse weekday appointments with bare clocks are recovered separately and SKU quantities are not clocks',async()=>{
+ const {normalizeInboxProposal}=await import('../../supabase/functions/cos-notes/communication-inbox.mjs');
+ const {clockEvidence}=await import('../../supabase/functions/telegram-webhook/time-evidence.mjs');
+ const context={projects:[],participants:[],tasks:[],briefs:[]},base={source_meta:{message_date:'2026-10-26T13:45:00Z'},created_at:'2026-10-26T13:45:00Z',proposal:{}};
+ const p=normalizeInboxProposal({summary:'',questions:[],changes:[]},{item:{...base,source_text:'Встреча агентство Eva среда 12.00\nЗум Инсталл Групп завтра 13.00'},context,timeZone:'Europe/Moscow'});
+ assert.deepEqual(p.changes.map(c=>[c.kind,c.meeting_date,c.meeting_time]),[['meeting_create','2026-10-28','12:00'],['meeting_create','2026-10-27','13:00']]);assert.deepEqual(p.questions,[]);
+ for(const source of ['Сделать кассету под пудры на 6 sku','Подставка на 12 штук','Подсветка в 2 ряда','Накладка акрил 2 мм'])assert.deepEqual(clockEvidence(source),[],source);
+ const task=normalizeInboxProposal({summary:'',questions:[],changes:[]},{item:{...base,source_text:'Сделать кассету под пудры на 6 sku'},context,timeZone:'Europe/Moscow'});assert.equal(task.changes[0].kind,'task_create');assert.equal(task.changes[0].deadline,null);assert.deepEqual(task.questions,[]);
+ const imperative=normalizeInboxProposal({summary:'',questions:['Что делать?'],changes:[]},{item:{...base,source_text:'Запроси нашу грамоту повторно'},context});assert.equal(imperative.changes[0].text,'Запросить нашу грамоту повторно');assert.deepEqual(imperative.questions,[]);
+});

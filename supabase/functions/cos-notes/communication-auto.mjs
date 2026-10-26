@@ -13,12 +13,12 @@ export function automaticCreation(item,now=new Date()){
   // even if an imperfect model extracts an affirmative fragment from them.
   if(/[?«»“”"]/u.test(cleaned)||word('не|если|возможно|примерно|ориентировочно|наверное|либо|или|например|постара\\p{L}*|попробу\\p{L}*|отмен\\p{L}*|перенес\\p{L}*|вчера|позавчера|состоял\\p{L}*|обсудили|завершили|сказал\\p{L}*|написал\\p{L}*',cleaned))return false;
   return changes.every(c=>{
-    if(c.selected===false||!['task_create','meeting_create'].includes(c.kind)||!c.evidence||!source.includes(c.evidence)||c.evidence_restored)return false;
+    if(c.manual||c.selected===false||!['task_create','meeting_create'].includes(c.kind)||!c.evidence||!source.includes(c.evidence)||c.evidence_restored)return false;
     if(c.kind==='meeting_create')return !!(c.meeting_date&&c.meeting_time);
     if(c.status!=='open'||c.direction==='to_me')return false;
     // A concrete infinitive action or explicit create-task command is required.
     // The grounding is the original source, never the rewritten model title.
-    return word('создай|создать|добавь|добавить|запиши|записать|поставь|поставить|напомни|напомнить',c.evidence)||
+    return word('создай|создать|добавь|добавить|запиши|записать|поставь|поставить|напомни|напомнить|запроси|сделай|подготовь|отправь|проверь|уточни|согласуй|напиши|позвони|свяжись',c.evidence)||
       /(?:^|[\s,:;])(?:[а-яё-]{3,}(?:ть|ться|ти|чь))(?=$|[\s,.;:])/iu.test(c.evidence);
   });
 }
