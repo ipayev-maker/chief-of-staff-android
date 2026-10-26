@@ -3,12 +3,14 @@ const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),
 (async()=>{
  const root=path.resolve(__dirname,'../dist'),config=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../vercel.json'),'utf8'));
  const csp=config.headers.find(r=>r.source==='/(.*)').headers.find(h=>h.key==='Content-Security-Policy').value;
- let authorized=false,reads=0,logout=0;
+ const referrerPolicy=config.headers.find(r=>r.source==='/(.*)').headers.find(h=>h.key==='Referrer-Policy').value;
+ let authorized=false,reads=0,logout=0,loginOrigin=null;
  const server=http.createServer((req,res)=>{
-  const url=new URL(req.url,'http://localhost'),p=url.pathname;res.setHeader('Cache-Control','no-store');
+  const url=new URL(req.url,'http://localhost'),p=url.pathname;res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy',referrerPolicy);
   const json=value=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value))};
   if(p==='/api/session')return json({authenticated:authorized});
   if(p==='/api/session/logout'){authorized=false;logout++;return json({ok:true})}
+  if(p==='/api/google-calendar/start'){loginOrigin=req.headers.origin;res.statusCode=303;res.setHeader('Location','/');return res.end()}
   if(p.startsWith('/rest/v1/')){reads++;if(!authorized){res.statusCode=401;return json({error:'unauthorized'})}return json([])}
   if(p.startsWith('/api/')){res.statusCode=401;return json({error:'unauthorized'})}
   const file=path.resolve(root,p==='/'?'index.html':'.'+p);if(!file.startsWith(root+'/')||!fs.existsSync(file)){res.statusCode=404;return res.end()}
@@ -21,6 +23,7 @@ const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),
   const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[],cspErrors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'&&/Content Security Policy/.test(m.text()))cspErrors.push(m.text())});
   await page.goto('http://127.0.0.1:'+server.address().port);await page.getByRole('button',{name:'Войти через Google',exact:true}).waitFor();
   assert.equal(reads,0,'no business reads before login');assert.equal(await page.locator('.app').isVisible(),false);
+  await page.getByRole('button',{name:'Войти через Google',exact:true}).click();await page.waitForLoadState('networkidle');await page.getByRole('button',{name:'Войти через Google',exact:true}).waitFor();assert.equal(loginOrigin,'http://127.0.0.1:'+server.address().port,'login POST retains same-origin identity for CSRF validation');
   await page.screenshot({path:'/tmp/cos-owner-login.png'});await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   authorized=true;await page.getByRole('button',{name:'Проверить вход',exact:true}).click();await page.locator('.today-page,.today-kpis').first().waitFor();assert.ok(reads>=7);assert.ok(await page.locator('.app').isVisible());
   await page.locator('#dashboardLogout').click();await page.getByRole('button',{name:'Войти через Google',exact:true}).waitFor();assert.equal(logout,1);assert.equal(await page.locator('.app').isVisible(),false);
