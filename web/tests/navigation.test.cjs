@@ -129,7 +129,7 @@ function appFixture({linkedNavigation=false}={}) {
     assert.equal(typeof win.CoSNavigation?.create,'function');
   }
   vm.runInContext(source,context);
-  vm.runInContext("toast=(message)=>messages.push(message);flushNote=async()=>{};flushQuickNote=async()=>{};",context);
+  vm.runInContext("authorizeDashboard=async()=>true;toast=(message)=>messages.push(message);flushNote=async()=>{};flushQuickNote=async()=>{};",context);
   if(!linkedNavigation)vm.runInContext("render=()=>events.push({section:S.section,project:S.project?.id,tab:S.tab});",context);
   const evaluate=code=>vm.runInContext(code,context);
   return {element,evaluate,events,messages,context,browserState};

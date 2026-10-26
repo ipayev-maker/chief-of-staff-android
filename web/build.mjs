@@ -13,8 +13,12 @@ if (!/^<!doctype html>/i.test(html.trimStart()) || !html.includes("const BUILD="
   throw new Error('Invalid Chief of Staff source bundle');
 }
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
-await writeFile(new URL('./dist/index.html', import.meta.url), html, 'utf8');
-for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css', 'gmail.js', 'gmail.css', 'mail-reader.js', 'mail-reader.css','note-editor.js','projects.css','recent-tasks.css','recent-tasks.js']) {
+// The release has no inline JavaScript, so CSP can block inline injection.
+const inline=html.match(/<script>([\s\S]*?)<\/script>/);
+if(!inline)throw Error('Missing application script');
+await writeFile(new URL('./dist/app.js',import.meta.url),inline[1]);
+await writeFile(new URL('./dist/index.html',import.meta.url),html.replace(inline[0],'<script src="/app.js?v='+version+'"></script>'),'utf8');
+for (const name of ['redesign.css', 'dashboard.css', 'date-picker.css', 'date-picker.js', 'calendar-view.css', 'calendar-view.js', 'attention.css', 'attention.js', 'project-brief.css', 'project-brief.js', 'pdf-preview.css', 'pdf-preview.js', 'participants.css', 'participants.js', 'navigation.js', 'inbox.js', 'inbox.css', 'gmail.js', 'gmail.css', 'mail-reader.js', 'mail-reader.css','note-editor.js','projects.css','auth.css','recent-tasks.css','recent-tasks.js']) {
   await writeFile(new URL(`./dist/${name}`, import.meta.url), await readFile(new URL(`./${name}`, import.meta.url)));
 }
 // Same-origin PDF renderer and worker; private documents never go to an external viewer.

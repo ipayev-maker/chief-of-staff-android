@@ -5,6 +5,14 @@
   "cleanUrls": true,
   "rewrites": [
     {
+      "source": "/api/session",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/session"
+    },
+    {
+      "source": "/api/session/logout",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/logout"
+    },
+    {
       "source": "/api/gmail/:path*",
       "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-google-calendar/gmail/:path*"
     },
@@ -22,15 +30,15 @@
     },
     {
       "source": "/rest/v1/:path*",
-      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/rest/v1/:path*"
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/rest/v1/:path*"
     },
     {
       "source": "/functions/v1/:path*",
-      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/:path*"
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/functions/v1/:path*"
     },
     {
       "source": "/storage/v1/:path*",
-      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/storage/v1/:path*"
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/storage/v1/:path*"
     }
   ],
   "headers": [
@@ -39,7 +47,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "no-cache"
+          "value": "private, no-store"
         }
       ]
     },
@@ -127,6 +135,57 @@
         {
           "key": "Cache-Control",
           "value": "no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), geolocation=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self' https://chief-of-staff-v3-live.vercel.app https://nikodim.vercel.app https://accounts.google.com; upgrade-insecure-requests"
+        }
+      ]
+    },
+    {
+      "source": "/api/session",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/session/logout",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
         },
         {
           "key": "x-vercel-enable-rewrite-caching",
