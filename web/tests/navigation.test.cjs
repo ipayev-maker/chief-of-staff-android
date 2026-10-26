@@ -149,9 +149,27 @@ test('actual HTML loads the helper before boot and the real application bridge s
 
 test('actual app refuses to lose task edits and does not navigate during a task save', async () => {
   const f=appFixture();f.evaluate("S.tasks=[{id:'task-1',description:'Original',status:'open',direction:'internal'}];S.task='task-1';");
-  f.element('#tdDesc').value='Edited';f.element('#tdStatus').value='open';f.element('#tdDirection').value='internal';
+  f.element('#tdDesc').value='Original';f.element('#tdStatus').value='open';f.element('#tdDirection').value='internal';f.evaluate('captureTaskNavigationBaseline(taskById(S.task))');f.element('#tdDesc').value='Edited';
   assert.equal(await f.evaluate("navigateDashboardSection('projects')"),false);assert.equal(f.evaluate('S.section'),'today');assert.equal(f.element('#tdDesc').value,'Edited');
   f.evaluate('S.taskSaveBusy=true;');assert.equal(await f.evaluate("navigateDashboardSection('notes')"),false);assert.equal(f.events.length,0);
+});
+
+test('unchanged rendered task and reverted fields leave without confirmation', async()=>{
+  const f=appFixture();f.evaluate("S.tasks=[{id:'task-1',description:'Original',details:'First\\r\\nSecond',estimate_minutes:0,direction:null}];S.task='task-1';confirm=()=>{throw Error('Unexpected confirmation')};");
+  for(const [id,value] of Object.entries({tdDesc:'Original',tdDetails:'First\nSecond',tdEstimate:'0',tdStatus:'open',tdDirection:'internal'}))f.element('#'+id).value=value;
+  f.evaluate('captureTaskNavigationBaseline(taskById(S.task))');assert.equal(f.evaluate('taskNavigationChanged()'),false);
+  for(const id of ['tdDesc','tdDetails','tdProject','tdArea','tdStatus','tdDirection','tdParticipant','tdEstimate','tdDeadlineDate','tdDeadlineTime','tdPlanDate','tdPlanStartTime','tdPlanEndTime','tdCheckDate','tdCheckTime']){
+    const field=f.element('#'+id),original=field.value;field.value='changed';assert.equal(f.evaluate('taskNavigationChanged()'),true,id);field.value=original;assert.equal(f.evaluate('taskNavigationChanged()'),false,id);
+  }
+  assert.equal(await f.evaluate("navigateDashboardSection('projects')"),true);
+});
+
+test('prefilled draft is unchanged until the user edits; rebinding cannot reset the baseline',()=>{
+  const f=appFixture();f.evaluate("S.taskDraft={id:'draft-1',_draft:true,description:'From note',deadline:'2026-10-27'};S.task='draft-1';");
+  f.element('#tdDesc').value='From note';f.element('#tdDeadlineDate').value='2026-10-27';f.evaluate('captureTaskNavigationBaseline(S.taskDraft)');assert.equal(f.evaluate('taskNavigationChanged()'),false);
+  f.element('#tdParticipant').value='person-1';f.evaluate('rememberTaskDraft();captureTaskNavigationBaseline(S.taskDraft)');assert.equal(f.evaluate('taskNavigationChanged()'),true);
+  f.evaluate("const priorQuery=document.querySelector;const rerenderedDrawer={};document.querySelector=selector=>selector==='.task-drawer'?rerenderedDrawer:priorQuery(selector);captureTaskNavigationBaseline(S.taskDraft)");assert.equal(f.evaluate('taskNavigationChanged()'),true);
+  f.element('#tdParticipant').value='';assert.equal(f.evaluate('taskNavigationChanged()'),false);
 });
 
 test('project-state refusal leaves the mounted editor and its request identity intact', async () => {
