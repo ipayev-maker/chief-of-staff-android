@@ -2,7 +2,7 @@
 const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'../dist');
 const screenshots=process.env.COS_SCREENSHOT_DIR||'/tmp/cos-projects-check';fs.mkdirSync(screenshots,{recursive:true});
-const fixture=`window.addEventListener('DOMContentLoaded',()=>{
+const fixture=`window.addEventListener('DOMContentLoaded',()=>{document.body.classList.remove('auth-locked');
  const pid=n=>'11111111-1111-4111-8111-'+String(n).padStart(12,'0');
  const tid=n=>'22222222-2222-4222-8222-'+String(n).padStart(12,'0');
  Object.assign(S,{areas:[{key:'work',title:'Основная работа'},{key:'side',title:'Подработки'},{key:'personal',title:'Личное'}],projects:['Интершарм','Self Code','Интершарм ТО','Блистеры 26','Colryut','Новый формат оборудования','Образцы для выставки','Каталог'].map((title,i)=>({id:pid(i),title,status:'active',area_key:'work'})),participants:[{id:pid(20),name:'Антон',archived_at:null}],tasks:Array.from({length:8},(_,i)=>({id:tid(i),description:['Согласовать срок образца','Отправить макеты на производство','Проверить оплату счёта','Подготовить спецификацию','Дождаться ответа по доставке','Уточнить размеры стойки','Проверить комплектацию','Подтвердить встречу'][i],project_id:pid(i),area_key:'work',participant_id:pid(20),direction:i===4?'to_me':'internal',status:'open',cos_version:1,created_at:new Date(Date.now()-(i+1)*3600000).toISOString(),deadline:i===0?'2026-10-19':'2026-10-30',details:''})),section:'projects'});
@@ -11,7 +11,7 @@ const fixture=`window.addEventListener('DOMContentLoaded',()=>{
  window.fetch=async()=>{throw Error('External calls disabled in fixture')};netFetch=window.fetch;
  todayRefreshReady=true;todayRefreshAt=Date.now();render();
 });`;
-const html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/\bboot\(\);(?=\s*<\/script>)/,()=>fixture);
+const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8').replace(/\bboot\(\);(?=\s*<\/script>)/,()=>fixture);
 (async()=>{
  const server=http.createServer((req,res)=>{const p=new URL(req.url,'http://localhost').pathname;if(p==='/'){res.setHeader('content-type','text/html');return res.end(html)}const file=path.resolve(root,'.'+p);if(!file.startsWith(root+'/')||!fs.existsSync(file)){res.statusCode=404;return res.end()}res.setHeader('content-type',p.endsWith('.css')?'text/css':p.endsWith('.js')?'text/javascript':'application/octet-stream');res.end(fs.readFileSync(file))}).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
  const pw=require(process.env.COS_PLAYWRIGHT||'playwright');const c=process.env.COS_CHROMIUM_PACKAGE?(await import(process.env.COS_CHROMIUM_PACKAGE)).default:{args:[]};

@@ -7,10 +7,7 @@ export function createNoteMedia({store,url,serviceKey,fetchImpl=fetch,uuid=()=>c
  async function sign(bucket,path,upload=false){
   if(!['cos-note-media','project-media'].includes(bucket)||!path||path.split('/').some(p=>p==='..'||p==='.'))fail(400,'invalid_media');
   const encoded=bucket+'/'+path.split('/').map(encodeURIComponent).join('/');
-  const response=await fetchImpl(new URL('/storage/v1/object/'+(upload?'upload/sign/':'sign/')+encoded,base),{method:'POST',headers:{apikey:serviceKey,Authorization:'Bearer '+serviceKey,'Content-Type':'application/json'},body:JSON.stringify(upload?{}:{expiresIn:3600}),redirect:'error',signal:AbortSignal.timeout(12000)});
-  if(!response.ok)fail(503,'media_storage_unavailable');const result=await response.json();
-  const relative=result.url||result.signedURL||result.signedUrl;if(typeof relative!=='string'||!relative.startsWith('/object/'))fail(503,'media_storage_unavailable');
-  return new URL('/storage/v1'+relative,base).href;
+  return '/storage/v1/object/'+(upload?'':'authenticated/')+encoded;
  }
  async function note(id,write=false){if(!UUID.test(id))fail(400,'invalid_media');const rows=await store.page('quick_notes',eq('id',id)+'&deleted_at=is.null&limit=1');if(!rows[0])fail(404,'note_not_found');if(write&&rows[0].archived_at)fail(409,'note_archived');return rows[0];}
  return {

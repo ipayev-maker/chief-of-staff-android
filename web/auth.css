@@ -1,0 +1,7 @@
+body.auth-locked{margin:0;min-height:100dvh;background:#f5f7fa}
+.auth-locked>.app,.auth-locked>.nik-panel,.auth-locked>dialog{display:none!important}
+.dashboard-login{min-height:100dvh;display:grid;place-items:center;padding:24px;font-family:Arial,sans-serif;color:#253246}
+.dashboard-login-card{width:100%;max-width:410px;background:#fff;padding:38px 32px;border:1px solid #e0e5ec;border-radius:16px;box-shadow:0 8px 32px #19304f08}
+.dashboard-login-mark{display:grid;place-items:center;width:42px;height:42px;background:#304f81;color:#fff;border-radius:11px;font-size:22px;margin-bottom:24px}
+.dashboard-login h1{font-size:25px;letter-spacing:-.4px;margin:0 0 14px}.dashboard-login p{font-size:15px;line-height:1.65;margin:0 0 24px;color:#69778a}
+.dashboard-login .btn{width:100%;justify-content:center;min-height:44px;font-size:15px;margin-top:10px}.dashboard-login .btn.primary{background:#304f81;color:#fff}.dashboard-login small{display:block;margin-top:24px;color:#8b95a4;font-size:12px}.dashboard-login p.dashboard-login-error{color:#a6443f;background:#fff5f4;padding:12px;border-radius:8px;font-size:14px}

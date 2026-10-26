@@ -5,7 +5,7 @@ const {chromium}=require(process.env.COS_PLAYWRIGHT||'playwright'),fs=require('n
  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[],network=[];
  page.on('pageerror',e=>errors.push(e.message));
  const fixture=`
- window.addEventListener('load',()=>{
+ window.addEventListener('load',()=>{document.body.classList.remove('auth-locked');
  const links={project_id:null,participant_ids:[],revision:0};
  const c1='11111111-1111-4111-8111-111111111111',c2='22222222-2222-4222-8222-222222222222';
  const messages=[{id:'m0',from:'Антон <anton@example.com>',to:'owner@example.com',date:'2026-10-20T10:00:00Z',subject:'Образец стойки · согласование'},{id:'m1',from:'Антон <anton@example.com>',to:'owner@example.com',date:'2026-10-21T10:00:00Z',subject:'Образец стойки · согласование'}];
