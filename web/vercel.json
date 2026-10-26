@@ -34,7 +34,7 @@
     },
     {
       "source": "/functions/v1/:path*",
-      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/functions/v1/:path*"
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/ai/:path*"
     },
     {
       "source": "/storage/v1/:path*",

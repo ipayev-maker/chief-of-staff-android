@@ -36,11 +36,11 @@ export function createDashboardHandler({store,url,serviceKey,fetchImpl=fetch,now
     const response=json({ok:true});response.headers.set('Set-Cookie',SESSION_COOKIE+'=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0');return response;
    }
    let target,storage=false;
-   const rest=/^\/rest\/v1\/([a-z_]+)$/.exec(path),fn=/^\/functions\/v1\/([a-z-]+)$/.exec(path);
+   const rest=/^\/rest\/v1\/([a-z_]+)$/.exec(path),fn=/^\/(?:ai|functions\/v1)\/([a-z-]+)$/.exec(path);
    if(rest&&TABLES.has(rest[1])&&['GET','HEAD','POST','PATCH','DELETE'].includes(request.method)){
     target=path+input.search;
    }else if(fn&&FUNCTIONS.has(fn[1])&&request.method==='POST'){
-    if(input.search)failure(400,'invalid_request');target=path;
+    if(input.search)failure(400,'invalid_request');target='/functions/v1/'+fn[1];
    }else{
     const file=/^\/storage\/v1\/object\/(sign\/|authenticated\/|upload\/sign\/)?([^/]+)\/(.+)$/.exec(path);
     if(!file||!BUCKETS.has(file[2]))return json({error:'not_found'},404);

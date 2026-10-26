@@ -37,6 +37,13 @@ test('media URLs require the owner session and do not mint reusable bearer signa
 test('logout deletes only the current hashed session and clears its secure HttpOnly cookie',async()=>{
  const f=await fixture();const r=await f.handler(f.request('/logout',{method:'POST'}));assert.equal(r.status,200);assert.equal(f.removed.length,1);assert.equal(f.removed[0][0],'cos_calendar_sessions');assert.match(f.removed[0][1],/^token_hash=eq\.[a-f0-9]{64}$/);assert.match(r.headers.get('Set-Cookie'),/Secure; HttpOnly; SameSite=Lax; Max-Age=0/);assert.equal(f.calls.length,0);
 });
+test('AI proxy uses a non-nested Edge route and maps only allowed functions upstream',async()=>{
+ const f=await fixture();
+ assert.equal((await f.handler(f.request('/ai/cos-capture-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}))).status,200);
+ assert.equal(f.calls[0].url,'https://db.example.test/functions/v1/cos-capture-chat');
+ assert.equal((await f.handler(f.request('/ai/cos-v3-export',{method:'POST',body:'{}'}))).status,404);
+ assert.equal((await f.handler(new Request(origin+'/api/data/ai/cos-capture-chat',{method:'POST',headers:{Origin:origin},body:'{}'}))).status,401);
+});
 test('every legacy deployed handler is service-guarded; public keys are absent from the release client',()=>{
  const root=path.resolve(__dirname,'../../supabase/functions');
  for(const slug of ['rapid-task','parse-dates','voice-ui','dynamic-action','morning-digest','dashboard','capture','cos-capture','cos-v3-preview','cos-v3-xhtml-test','cos-meeting-minutes','cos-capture-v25','cos-capture-chat','cos-v3-export']){
