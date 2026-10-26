@@ -3,6 +3,7 @@ import {createStore} from '../cos-google-calendar/store.mjs';
 import {createNotesHandler} from './handler.mjs';
 import {createCommunicationInbox, createInboxModel} from './communication-inbox.mjs';
 import {createVoiceAdapter} from '../telegram-webhook/voice.mjs';
+import {withPinGate} from '../_shared/dashboard-pin.mjs';
 
 // Deploy with verify_jwt=false: the handler authenticates the existing private
 // owner session cookie, not a public Supabase key or a caller-supplied email.
@@ -26,7 +27,7 @@ Deno.serve(async (request: Request) => {
         model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY')}),
         voice: {model: voiceAdapter.model, save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
       });
-      handler = createNotesHandler({store, inbox,media:createNoteMedia({store,url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')})});
+      handler = withPinGate(createNotesHandler({store, inbox,media:createNoteMedia({store,url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')})}),{store});
     }
     return await handler(request);
   } catch {

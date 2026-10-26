@@ -13,6 +13,10 @@
       "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/logout"
     },
     {
+      "source": "/api/session/pin/:path*",
+      "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-dashboard/pin/:path*"
+    },
+    {
       "source": "/api/gmail/:path*",
       "destination": "https://spabmyyxiufuzsaydrmx.supabase.co/functions/v1/cos-google-calendar/gmail/:path*"
     },
@@ -186,6 +190,19 @@
         {
           "key": "Cache-Control",
           "value": "private, no-store"
+        },
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/session/pin/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
         },
         {
           "key": "x-vercel-enable-rewrite-caching",
