@@ -57,13 +57,17 @@ object SecureSession {
         }
         write(data)
     }
-    @Synchronized fun begin(verifier: String) { write(read().put("verifier", verifier).put("started", System.currentTimeMillis())) }
+    @Synchronized fun begin(verifier: String, taskId: Int) { write(read().put("verifier", verifier).put("started", System.currentTimeMillis()).put("login_task_id", taskId)) }
     @Synchronized fun verifier(): String? {
         val data = read()
         if (System.currentTimeMillis() - data.optLong("started") !in 0..600_000L) return null
         return data.optString("verifier").takeIf { it.matches(Regex("[A-Za-z0-9_-]{32,200}")) }
     }
-    @Synchronized fun finishLogin() { write(read().apply { remove("verifier"); remove("started"); remove("__Host-cos-pin-session") }) }
+    @Synchronized fun loginTaskId(): Int? {
+        if (verifier() == null) return null
+        return read().optInt("login_task_id", -1).takeIf { it >= 0 }
+    }
+    @Synchronized fun finishLogin() { write(read().apply { remove("verifier"); remove("started"); remove("login_task_id"); remove("__Host-cos-pin-session") }) }
     @Synchronized fun clearPin() { write(read().apply { remove("__Host-cos-pin-session") }) }
     @Synchronized fun clear() { context.getSharedPreferences("owner_session", Context.MODE_PRIVATE).edit().clear().commit() }
 }

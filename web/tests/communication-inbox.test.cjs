@@ -64,6 +64,42 @@ test('tentative plural promise stays undated even if a model calls the date expl
  const {item}=await createCommunicationInbox(fixture).analyze(id,{revision:1});assert.equal(item.status,'ready');assert.equal(item.proposal.changes[0].deadline,null);assert.ok(item.proposal.questions.some(q=>q.includes('Уточните срок')));
 });
 
+test('spoken Friday owner action retains its work date when the model omits or rewrites the date quote',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);
+ const source='В пятницу надо саловато уточнить по поводу встречи и готовности образцов.';
+ for(const fields of [{date_status:'none',date_text:null},{date_status:'explicit',date_text:'в пятницу',date_kind:'work'},{date_status:'explicit',date_text:'30 октября',date_kind:'deadline'},{date_status:'ambiguous',date_text:'пятницу'}]){
+  const raw={summary:'Уточнить готовность образцов',questions:[],changes:[{kind:'task_create',text:'Уточнить у Салавата по поводу встречи и готовности образцов',evidence:source.slice(0,-1),direction:'from_me',...fields}]};
+  const f=setup({source,raw,voice:{transcribe:async()=>assert.fail('keep the saved transcript')},meta:{channel:'android',type:'voice',audio_path:'android/test/voice.m4a',message_date:'2026-10-28T21:29:22.629727+00:00'}});
+  f.setRow({source_text:'[Голосовое сообщение]',transcript:source});f.context.cos_calendar_connection=[{time_zone:'Europe/Moscow'}];
+  f.now=()=>new Date('2026-11-05T12:00:00Z');
+  const service=createCommunicationInbox(f),{item}=await service.analyze(id,{revision:1});
+  assert.equal(item.status,'ready');assert.equal(item.proposal.questions.length,0);
+  assert.equal(item.proposal.changes.length,1);const change=item.proposal.changes[0];
+  assert.equal(change.kind,'task_create');assert.equal(change.planned_on,'2026-10-30');
+  assert.equal(change.planned_time,null);assert.equal(change.deadline,null);assert.equal(change.work_date_intent,true);
+  await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:[change]}});
+  const action=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0];
+  assert.equal(action.task.planned_on,'2026-10-30');assert.equal(action.task.planned_start_at,null);assert.equal(action.task.deadline,null);
+ }
+});
+
+test('work-date recovery never borrows another clause, guesses uncertain dates or turns deadlines into work dates',async()=>{
+ const {normalizeInboxProposal}=await import(modulePath);
+ const context={projects:[],participants:[],tasks:[],briefs:[]};
+ for(const source of ['В пятницу или субботу надо уточнить готовность образцов.','В пятницу, возможно, надо уточнить готовность образцов.','Не в пятницу надо уточнить готовность образцов.','В пятницу надо уточнить готовность образцов, если пришлют чертёж.','В пятницу надо уточнить встречу. Готовность образцов проверить отдельно.','До пятницы надо уточнить готовность образцов.','В пятницу надо уточнить готовность образцов, а в понедельник отправить их.']){
+  const raw={summary:'',changes:[{kind:'task_create',text:'Уточнить готовность образцов',evidence:source,date_text:null,date_status:'none'}]};
+  const item={source_text:source,source_meta:{message_date:'2026-10-28T21:29:22Z'}};
+  const proposal=normalizeInboxProposal(raw,{item,context});
+  assert.equal(proposal.changes[0].planned_on,null,source);assert.equal(proposal.changes[0].deadline,null,source);
+ }
+ const source='В пятницу надо уточнить готовность образцов.';
+ for(const extra of [{direction:'to_me'},{evidence:'уточнить готовность образцов'},{text:'Отправить чертёж'}]){
+  const raw={summary:'',changes:[{kind:'task_create',text:'Уточнить готовность образцов',evidence:source,date_status:'none',...extra}]};
+  const proposal=normalizeInboxProposal(raw,{item:{source_text:source,source_meta:{message_date:'2026-10-28T21:29:22Z'}},context});
+  assert.equal(proposal.changes[0].planned_on,null);
+ }
+});
+
 test('reported spoken appointment survives split day/time and applies as a calendar meeting',async()=>{
  const {createCommunicationInbox}=await import(modulePath);
  const {projectCalendarRecord}=await import('../calendar/projector.mjs');

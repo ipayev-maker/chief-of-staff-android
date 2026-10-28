@@ -1,7 +1,25 @@
 // Conservative, source-only recovery for an explicit task to prepare/delegate work.
 // Does not invent the future subtasks, write people, or execute model instructions.
+import {dateEvidence,exactDay} from '../telegram-webhook/date-evidence.mjs';
 const key=value=>String(value||'').normalize('NFC').toLocaleLowerCase('ru').replaceAll('ё','е').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const tokens=value=>key(value).split(' ').filter(Boolean);
+
+// A leading day + owner instruction is a work date even if the model omitted
+// date_text or rewrote its spelling. Use only this action's literal evidence.
+export function recoverTaskWorkDate(raw,{full,refDate,timeZone}){
+  const source=raw.evidence;
+  if(raw.kind!=='task_create'||raw.task_id||raw.direction==='to_me'||raw.status&&raw.status!=='open'||typeof source!=='string'||source.length>1000||!full.includes(source))return raw;
+  if(/[;!?«»“”"\n]|\.\s+\p{L}/u.test(source)||/(?:^|[^\p{L}])(?:если|например|затем|потом|а|сказал\p{L}*|написал\p{L}*)(?:$|[^\p{L}])/iu.test(source))return raw;
+  const match=source.match(/^(.{1,160}?)\s*,?\s+(?:(?:мне|нам)\s+)?(?:надо|нужно|необходимо)\s+(.+)$/iu);
+  if(!match)return raw;
+  const quote=match[1].trim().replace(/,$/u,'');
+  if(/^(?:до|к)\s/iu.test(quote))return raw;
+  const actions=[...match[2].matchAll(/(?<!\p{L})([а-яё-]{3,}(?:ть|ться|ти|чь))(?!\p{L})/giu)].map(m=>m[1].toLocaleLowerCase('ru'));
+  if(!actions.some(verb=>tokens(raw.text).includes(verb)))return raw;
+  const checked=dateEvidence({source_text:source,date_text:quote,date_status:'explicit'},full);
+  if(!checked.quote||!exactDay(checked.quote,refDate,{timeZone}).day)return raw;
+  return {...raw,date_text:checked.quote,date_status:'explicit',date_kind:'work'};
+}
 function nameTokenMatches(name,mention){
   if(name===mention)return true;
   if(name.length<3||mention.length<3)return false;
