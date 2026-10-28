@@ -18,7 +18,7 @@ const NON_ID_COLUMNS={
 const json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json',...headers}});
 const ogg=()=>{const value=new Uint8Array(64);value.set([79,103,103,83]);return value};
 
-async function fixture({existingReceipt=false}={}){
+async function fixture({existingReceipt=false,groqApiKey}={}){
   const [{createTelegramRuntime},{createTelegramWebhook}]=await Promise.all([runtimeModule,handlerModule]);
   const calls=[],sent=[];
   let receipt=existingReceipt,item=null,storedAudio=null;
@@ -69,6 +69,10 @@ async function fixture({existingReceipt=false}={}){
     if(path==='/storage/v1/object/authenticated/cos-communication-audio/'+OWNER+'/'+ID+'/voice.ogg'){
       assert.ok(storedAudio,'recognition must read the original after private storage succeeds');return new Response(storedAudio);
     }
+    if(path==='/openai/v1/audio/transcriptions'){
+      assert.equal(url.hostname,'api.groq.com');assert.equal(body.get('model'),'whisper-large-v3');
+      assert.deepEqual(Buffer.from(await body.get('file').arrayBuffer()),Buffer.from(storedAudio));return json({text:TRANSCRIPT});
+    }
     if(path==='/api/v1/audio/transcriptions'){
       assert.deepEqual(Buffer.from(body.input_audio.data,'base64'),Buffer.from(storedAudio));
       return json({text:TRANSCRIPT});
@@ -78,7 +82,7 @@ async function fixture({existingReceipt=false}={}){
     if(path==='/botsynthetic-bot/sendMessage'){sent.push(body);return json({ok:true,result:{message_id:201}})}
     throw Error('Unexpected synthetic network path: '+path);
   };
-  const runtime=createTelegramRuntime({url:'https://synthetic.supabase.co',serviceKey:'synthetic-service',botToken:'synthetic-bot',openRouterKey:'synthetic-ai',fetchImpl,now:()=>new Date('2026-09-29T20:00:00Z')});
+  const runtime=createTelegramRuntime({url:'https://synthetic.supabase.co',serviceKey:'synthetic-service',botToken:'synthetic-bot',openRouterKey:'synthetic-ai',groqApiKey,fetchImpl,now:()=>new Date('2026-09-29T20:00:00Z')});
   const handler=createTelegramWebhook(runtime);
   const run=kind=>handler(new Request('https://synthetic.supabase.co/functions/v1/telegram-webhook',{method:'POST',headers:{'X-Telegram-Bot-Api-Secret-Token':CONFIG.webhookSecret},body:JSON.stringify({update_id:100,message:{message_id:200,date:1790712000,from:{id:OWNER,is_bot:false},chat:{id:OWNER,type:'private'},...(kind==='voice'?{voice:{file_id:'synthetic-file',duration:10,file_size:64,mime_type:'audio/ogg'}}:{text:TRANSCRIPT})}})}));
   return {calls,sent,runtime,run,get item(){return item}};
@@ -133,4 +137,17 @@ test('legacy receipt skips capture, transcription, analysis and reply through re
   assert.deepEqual(env.calls.map(call=>call.path),['/rest/v1/rpc/cos_notes_get_config','/rest/v1/cos_notes_telegram_receipts']);
   assert.equal(env.item,null);
   assert.equal(env.sent.length,0);
+});
+
+
+test('Groq voice pipeline persists provider model and still parses text through OpenRouter',async()=>{
+ const env=await fixture({groqApiKey:'synthetic-groq'});
+ assert.equal((await env.run('voice')).status,200);
+ assert.equal(env.item.transcript,TRANSCRIPT);
+ assert.equal(env.item.proposal.analysis.transcription_model,'groq/whisper-large-v3');
+ const paths=env.calls.map(c=>c.path);
+ assert.ok(paths.includes('/openai/v1/audio/transcriptions'));
+ assert.ok(paths.includes('/api/v1/chat/completions'));
+ assert.equal(paths.includes('/api/v1/audio/transcriptions'),false);
+ const count=env.calls.length;assert.equal((await env.run('voice')).status,200);assert.equal(env.calls.length,count+2);
 });
