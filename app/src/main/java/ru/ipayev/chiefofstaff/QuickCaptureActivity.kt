@@ -6,9 +6,11 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.RippleDrawable
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -23,6 +25,7 @@ import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.ImageButton
 import android.widget.CheckBox
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -42,7 +45,11 @@ class QuickCaptureActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var sheet: ScrollView
     private lateinit var scrim: View
-    private var microphone: RecordingMicView? = null
+    private var waveform: RecordingWaveView? = null
+    private var compactRecording = false
+    private val ink = Color.rgb(28, 28, 26)
+    private val lavender = Color.rgb(238, 216, 255)
+    private val cream = Color.rgb(255, 255, 236)
     private var closing = false
     private var recorder: MediaRecorder? = null
     private var started = 0L
@@ -59,8 +66,10 @@ class QuickCaptureActivity : Activity() {
         override fun run() {
             if (recorder == null) return
             val seconds = (SystemClock.elapsedRealtime() - started) / 1000
-            status.text = "Запись · %d:%02d".format(seconds / 60, seconds % 60)
-            main.postDelayed(this, 500)
+            val time = "%d:%02d".format(seconds / 60, seconds % 60)
+            if (status.text != time) status.text = time
+            waveform?.setAmplitude(runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0))
+            main.postDelayed(this, 80)
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,17 +80,18 @@ class QuickCaptureActivity : Activity() {
         sheet = object : ScrollView(this) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val maxHeight = minOf(dp(620), (resources.displayMetrics.heightPixels * 0.82).toInt())
-                super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(minOf(View.MeasureSpec.getSize(heightMeasureSpec), maxHeight), View.MeasureSpec.AT_MOST))
+                val maxWidth = dp(if (compactRecording) 328 else 480)
+                super.onMeasure(View.MeasureSpec.makeMeasureSpec(minOf(View.MeasureSpec.getSize(widthMeasureSpec), maxWidth), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(minOf(View.MeasureSpec.getSize(heightMeasureSpec), maxHeight), View.MeasureSpec.AT_MOST))
             }
         }.apply {
             addView(root); clipToOutline = true; background = roundedDrawable(Color.WHITE, dp(28).toFloat())
             isVerticalScrollBarEnabled = false; elevation = dp(16).toFloat()
         }
-        scrim = View(this).apply { setBackgroundColor(Color.argb(52, 14, 22, 35)); setOnClickListener { finish() } }
+        scrim = View(this).apply { setBackgroundColor(Color.argb(24, 20, 20, 20)); setOnClickListener { finish() } }
         val overlay = FrameLayout(this).apply {
             addView(scrim, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            addView(sheet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
-                setMargins(dp(12), dp(12), dp(12), dp(12))
+            addView(sheet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                setMargins(dp(16), dp(12), dp(16), dp(20))
             })
         }
         setContentView(overlay); applySystemInsets(overlay)
@@ -108,7 +118,7 @@ class QuickCaptureActivity : Activity() {
         if (recorder != null) { stopRecording(); pending("Запись остановлена и сохранена на телефоне.") }
         super.onPause()
     }
-    override fun onDestroy() { microphone?.setRecording(false); main.removeCallbacksAndMessages(null); recorder?.release(); recorder = null; io.shutdown(); super.onDestroy() }
+    override fun onDestroy() { waveform?.setRecording(false); main.removeCallbacksAndMessages(null); recorder?.release(); recorder = null; io.shutdown(); super.onDestroy() }
     override fun onSaveInstanceState(outState: Bundle) {
         draft?.let { outState.putString("capture_draft_id", it.id) }
         outState.putBoolean("new_recording_requested", newRecordingRequested)
@@ -142,41 +152,69 @@ class QuickCaptureActivity : Activity() {
             else showAccessRequired()
         }
     }
-    private fun base(title: String, text: String, recording: Boolean = false) {
-        microphone?.setRecording(false); microphone = null
+    private fun resetSurface(compact: Boolean) {
+        waveform?.setRecording(false); waveform = null
+        compactRecording = compact
         root.removeAllViews(); choices.clear()
-        root.addView(View(this).apply { background = roundedDrawable(Color.rgb(219, 224, 233), dp(2).toFloat()) },
-            LinearLayout.LayoutParams(dp(32), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(4) })
+        root.setPadding(dp(if (compact) 0 else 20), dp(if (compact) 0 else 12), dp(if (compact) 0 else 20), dp(if (compact) 0 else 20))
+        sheet.background = if (compact) null else roundedDrawable(cream, dp(28).toFloat())
+        sheet.elevation = if (compact) 0f else dp(12).toFloat()
+        sheet.requestLayout()
+    }
+    private fun circleButton(icon: Int, description: String, color: Int, action: () -> Unit) = ImageButton(this).apply {
+        setImageResource(icon); imageTintList = ColorStateList.valueOf(ink)
+        contentDescription = description; tooltipText = description
+        background = RippleDrawable(ColorStateList.valueOf(Color.argb(28, 28, 28, 26)), roundedDrawable(color, dp(40).toFloat()), null)
+        setPadding(dp(17), dp(17), dp(17), dp(17))
+        setOnClickListener { if (!busy) action() }
+    }
+    private fun base(title: String, text: String) {
+        resetSurface(false)
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        header.addView(label("НИКОДИМ", 11f, muted = true).apply { letterSpacing = 0.14f; setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER_VERTICAL }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        header.addView(ImageButton(this).apply {
-            setImageResource(R.drawable.ic_sheet_close); contentDescription = "Закрыть и сохранить запись"
-            background = roundedDrawable(Color.rgb(245, 247, 251), dp(24).toFloat())
-            setPadding(dp(14), dp(14), dp(14), dp(14)); setOnClickListener { finish() }
-        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        header.addView(label("Никодим", 13f, muted = true).apply { gravity = Gravity.CENTER_VERTICAL }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        header.addView(circleButton(R.drawable.ic_sheet_close, "Закрыть и сохранить запись", lavender) { finish() }, LinearLayout.LayoutParams(dp(48), dp(48)))
         root.addView(header); header.margin(bottom = dp(8))
         status = label(text, 15f, muted = true)
-        if (recording) {
-            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-            microphone = RecordingMicView(this).also { it.setRecording(true); row.addView(it, LinearLayout.LayoutParams(dp(86), dp(86))) }
-            row.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, 0, 0)
-                addView(label(title, 23f).apply { setTypeface(typeface, Typeface.BOLD) })
-                addView(status); status.margin(top = dp(6))
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            root.addView(row)
-            root.addView(label("Назовите действие, участника и дату.", 14f, muted = true).apply { margin(top = dp(10), bottom = dp(6)) })
-        } else {
-            root.addView(label(title, 23f).apply { setTypeface(typeface, Typeface.BOLD) })
-            root.addView(status); status.margin(top = dp(10), bottom = dp(12))
+        root.addView(label(title, 23f).apply { setTextColor(ink); setTypeface(typeface, Typeface.BOLD) })
+        root.addView(status); status.margin(top = dp(10), bottom = dp(12))
+    }
+    private fun showRecordingControls() {
+        resetSurface(true)
+        val info = LinearLayout(this).apply { gravity = Gravity.CENTER }
+        val count = VoiceDraft.all(this).count { it.id != draft?.id }
+        if (count > 0) {
+            info.addView(circleButton(R.drawable.ic_capture_saved, "Сохранённые сообщения: $count", cream) { showSavedDrafts() },
+                LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
         }
+        status = label("0:00", 13f).apply {
+            setTextColor(cream); typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = roundedDrawable(ink, dp(20).toFloat()); gravity = Gravity.CENTER
+            setPadding(dp(14), dp(6), dp(14), dp(6)); minHeight = dp(32)
+            contentDescription = "Длительность записи"
+        }
+        info.addView(status, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        root.addView(info, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)).apply { bottomMargin = dp(8) })
+        val controls = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        controls.addView(circleButton(R.drawable.ic_sheet_close, "Отменить запись", lavender) { discard() }, LinearLayout.LayoutParams(dp(64), dp(64)))
+        waveform = RecordingWaveView(this).also {
+            it.setRecording(true)
+            it.background = roundedDrawable(lavender, dp(40).toFloat())
+            controls.addView(it, LinearLayout.LayoutParams(0, dp(64), 1f).apply { marginStart = dp(8); marginEnd = dp(8) })
+        }
+        controls.addView(circleButton(R.drawable.ic_capture_done, "Завершить и отправить запись", cream) { stopRecording(); upload() }, LinearLayout.LayoutParams(dp(64), dp(64)))
+        root.addView(controls)
     }
     private fun showAccessRequired() {
         base("Нужна разблокировка", "Войдите в аккаунт владельца и подтвердите PIN, затем вернитесь к записи.")
         button("Разблокировать") { startActivityForResult(Intent(this, LoginActivity::class.java), 10) }
     }
     private fun button(text: String, primary: Boolean = true, action: () -> Unit) {
-        root.addView((if (primary) primaryButton(text) else secondaryButton(text)).apply { setOnClickListener { if (!busy) action() } })
+        root.addView(Button(this).apply {
+            this.text = text; textSize = 16f; isAllCaps = false; minHeight = dp(52)
+            setTextColor(if (primary) cream else ink)
+            background = RippleDrawable(ColorStateList.valueOf(Color.argb(30, 128, 108, 145)), roundedDrawable(if (primary) ink else lavender, dp(26).toFloat()), null)
+            setPadding(dp(18), dp(12), dp(18), dp(12)); setOnClickListener { if (!busy) action() }
+        })
         root.getChildAt(root.childCount - 1).margin(top = dp(10))
     }
     private fun authorize() {
@@ -225,12 +263,7 @@ class QuickCaptureActivity : Activity() {
             recording.setOnErrorListener { _, _, _ -> stopRecording(); pending("Запись прервалась. Проверьте сохранённый фрагмент.") }
             recording.prepare(); recording.start(); recorder = recording; started = SystemClock.elapsedRealtime()
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            base("Я слушаю", "Запись · 0:00", recording = true)
-            val actions = LinearLayout(this)
-            actions.addView(secondaryButton("Отмена").apply { setOnClickListener { if (!busy) discard() } }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(10) })
-            actions.addView(primaryButton("Готово").apply { setOnClickListener { if (!busy) { stopRecording(); upload() } } }, LinearLayout.LayoutParams(0, dp(52), 1.5f))
-            root.addView(actions); actions.margin(top = dp(14))
-            savedDraftsButton()
+            showRecordingControls()
             main.post(timer)
         } catch (_: Exception) {
             recording.release(); recorder = null; next.clear(this); draft = null
@@ -247,7 +280,7 @@ class QuickCaptureActivity : Activity() {
         else { base("Нужен доступ к микрофону", "Разрешите запись звука в настройках приложения."); button("Настройки") { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }; button("Начать запись", false) { startRecording() } }
     }
     private fun stopRecording() {
-        microphone?.setRecording(false)
+        waveform?.setRecording(false)
         val recording = recorder ?: return; recorder = null
         main.removeCallbacks(timer); window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val seconds = ((SystemClock.elapsedRealtime() - started + 999) / 1000).toInt().coerceIn(1, 600)

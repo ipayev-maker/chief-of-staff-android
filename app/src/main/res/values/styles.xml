@@ -26,6 +26,6 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:colorAccent">@color/cos_blue</item>
+        <item name="android:colorAccent">#6F4A87</item>
     </style>
 </resources>

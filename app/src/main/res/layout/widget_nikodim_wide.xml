@@ -5,19 +5,20 @@
     <LinearLayout
         android:id="@+id/widget_root"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="52dp"
         android:layout_gravity="center"
         android:layout_margin="2dp"
         android:background="@drawable/widget_bg"
         android:contentDescription="@string/shortcut_voice"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="12dp">
+        android:paddingHorizontal="16dp">
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:importantForAccessibility="no"
-            android:src="@drawable/ic_widget_mic" />
+            android:src="@drawable/ic_widget_mic"
+            android:tint="#1C1C1A" />
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -26,9 +27,9 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:importantForAccessibility="no"
-            android:text="Никодим"
-            android:textColor="#FFFFFF"
+            android:text="Записать"
+            android:textColor="#1C1C1A"
             android:textSize="14sp"
-            android:textStyle="bold" />
+            android:fontFamily="sans-serif-medium" />
     </LinearLayout>
 </FrameLayout>
