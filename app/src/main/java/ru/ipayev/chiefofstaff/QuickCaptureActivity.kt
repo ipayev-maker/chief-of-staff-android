@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -344,7 +345,18 @@ class QuickCaptureActivity : Activity() {
         base("Сохраняю", "Подтверждаю выбранные задачи и встречи…")
         work({ ApiClient.apply(id, body) }) { showItem(it) }
     }
-    private fun openCard() { val id = draft?.id ?: return; startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ApiClient.BASE_URL + "/#/inbox/$id"))) }
+    private fun openCard() {
+        val id = draft?.id ?: return
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ApiClient.BASE_URL + "/#/inbox/$id"))
+            .setPackage("com.android.chrome")
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            AlertDialog.Builder(this).setTitle("Нужен Google Chrome")
+                .setMessage("Установите или включите Google Chrome, чтобы открыть карточку.")
+                .setPositiveButton("Понятно", null).show()
+        }
+    }
     private fun discard() {
         AlertDialog.Builder(this).setTitle("Удалить запись с телефона?").setMessage("Если сообщение уже отправлено, его копия останется в дашборде.")
             .setPositiveButton("Удалить") { _, _ -> stopRecording(); draft?.clear(this); draft = null; item = null; finish() }.setNegativeButton("Отмена", null).show()

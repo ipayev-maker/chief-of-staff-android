@@ -1,4 +1,4 @@
-# Android 0.4.3: raw voice and owner access
+# Android 0.4.4: raw voice and owner access
 
 The Android app records mono AAC in an M4A container (16 kHz, 32 kbps), up to ten minutes / 3 MiB. It does not use Android speech recognition. The owner explicitly stops and sends the recording. Backgrounding the activity stops recording and retains the private local draft.
 
@@ -24,13 +24,13 @@ The server accepts UTC recording timestamps with zero to nine fractional digits,
 
 For a direct instruction such as “В пятницу надо уточнить готовность образцов”, the server recovers the work date from the literal action quote even if the model omits or rewrites the date field. It resolves the day relative to the original recording time in the configured timezone, keeps an unstated clock time empty, and still rejects ambiguous or cross-clause date inference. Requested result deadlines remain separate from work dates.
 
-The app retains the local recording until successful confirmation or explicit removal. Server-side originals remain available in the inbox. Corrections and unresolved links open the existing inbox card; the browser uses its own protected session.
+The app retains the local recording until successful confirmation or explicit removal. Server-side originals remain available in the inbox. Both **Открыть карточку** and **Исправить в карточке** open the existing inbox card explicitly in Google Chrome, which uses its own protected session. If Chrome is missing or disabled, the app asks the owner to install or enable it and leaves the draft intact.
 
 ## Deployment order and validation
 
 1. Apply `20261028195156_android_voice_and_login.sql`.
 2. Deploy `cos-google-calendar` and `cos-notes` with their existing custom owner/PIN guards (`verify_jwt=false`).
-3. Build, test and lint Android 0.4.3 (versionCode 7); sign the release APK with the same privately retained release key as 0.4.0 so it installs as an update.
+3. Build, test and lint Android 0.4.4 (versionCode 8); sign the release APK with the same privately retained release key as 0.4.0 so it installs as an update.
 4. Install and sign in on the owner's phone. Device login, microphone routing and launcher rendering need a real-device check; automated tests do not establish those outcomes.
 
 Contract coverage includes owner/PIN/origin denial, bounded audio, immutable retry sequencing, Groq-only transcription, free-model routing, meeting confirmation and single-use verifier-bound login. Android CI builds debug and unsigned release APKs and runs lint. Release signing material must never be committed or included in public CI artifacts.
