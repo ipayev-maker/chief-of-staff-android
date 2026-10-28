@@ -9,7 +9,7 @@ import {participantFor,recoverPreparationTask,recoverDirectTask,recoverTaskWorkD
 import {projectFor} from './communication-entities.mjs';
 import {MAIL_INSTRUCTIONS,mailEvidence,restoreMailEvidence} from './communication-mail.mjs';
 import {clockEvidence} from '../telegram-webhook/time-evidence.mjs';
-import {splitMailProposal,automaticReviewChanges} from './communication-mail-auto.mjs';
+import {splitMailProposal,automaticReviewChanges,mailTriggerRelated} from './communication-mail-auto.mjs';
 import {automaticCreation} from './communication-auto.mjs';
 import {mailProject} from './communication-mail-project.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -350,6 +350,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
       selectedPeople.length?store.list('participants','select=id,name,archived_at&id=in.('+selectedPeople.join(',')+')'):[],
     ]);
     for(const change of changes){
+      if(!mailTriggerRelated(change,item))fail(400,'invalid_mail_evidence');
       if(change.participant_id&&!people.some(p=>p.id===change.participant_id&&(!p.archived_at||change.kind==='task_update'&&proposal.context?.tasks?.some(t=>t.id===change.task_id&&t.participant_id===p.id))))fail(400,'invalid_participant');
       const baseline=proposal.context?.tasks?.find(t=>t.id===change.task_id);
       if(change.project_id&&!projects.some(p=>p.id===change.project_id&&(p.status==='active'||baseline?.project_id===p.id&&change.kind==='task_update')))fail(400,'inactive_project');

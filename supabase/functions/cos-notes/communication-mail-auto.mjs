@@ -9,6 +9,24 @@ export function mailBody(item,id){
   const quote=body.search(/^(?:\s*>|\s*(?:On .+wrote:|.*(?:писал|писала|написал|написала)\s*:\s*$|От:\s|From:\s|[-_]{3,}|Начало переадресованного))/imu);
   return {message:m,text,body,unquoted:quote<0?body:body.slice(0,quote),to:m.to_emails||addressList(text.match(/^Кому: (.*)$/m)?.[1]),from:m.email?.toLowerCase()};
 }
+// Gmail can group different suppliers under one subject. The shared owner and
+// thread ID do not connect their obligations. Cross-message evidence must share
+// a correspondent, or name that correspondent's email in the NEW unquoted act.
+export function mailTriggerRelated(change,item){
+  if(item.source_meta?.type!=='gmail')return true;
+  const sourceId=change.source_message_id,triggerId=change.trigger_message_id||sourceId;
+  if(sourceId&&sourceId===triggerId)return true;
+  const source=mailBody(item,sourceId),trigger=mailBody(item,triggerId);
+  if(!source||!trigger)return false;
+  const owner=String(item.source_meta.owner_email||'').toLowerCase();
+  const parties=m=>[m.from,...m.to].filter(x=>typeof x==='string').map(x=>x.toLowerCase()).filter(x=>x&&x!==owner);
+  const sourceParties=parties(source),triggerParties=parties(trigger);
+  const participant=String(change.participant_email||'').toLowerCase();
+  const relevant=sourceParties.includes(participant)?[participant]:sourceParties;
+  if(relevant.some(email=>triggerParties.includes(email)))return true;
+  const quote=change.mail_trigger_evidence??change.trigger_evidence;
+  return typeof quote==='string'&&!!quote.trim()&&trigger.unquoted.includes(quote)&&relevant.some(email=>addressList(quote).includes(email));
+}
 export function mailActionDecision(change,item){
   const review=reason=>({mode:'review',reason});
   if(change.mail_relation==='third_party'&&change.mail_intent==='information')return {mode:'information'};
