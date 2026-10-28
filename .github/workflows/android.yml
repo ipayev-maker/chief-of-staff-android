@@ -1,13 +1,19 @@
 name: Build Android APK
 
 on:
+  pull_request:
+    paths: ["app/**", "build.gradle.kts", "settings.gradle.kts", ".github/workflows/android.yml"]
   workflow_dispatch:
   push:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -25,11 +31,14 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME/platforms" | tail -20
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Build and lint Android
+        run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chief-of-staff-android-alpha-0.3
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: nikodim-android-0.4.0
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            app/build/reports/lint-results-debug.html
           if-no-files-found: error

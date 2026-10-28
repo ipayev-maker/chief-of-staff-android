@@ -4,6 +4,7 @@ import {createNotesHandler} from './handler.mjs';
 import {createCommunicationInbox, createInboxModel} from './communication-inbox.mjs';
 import {createVoiceAdapter} from '../telegram-webhook/voice.mjs';
 import {withPinGate} from '../_shared/dashboard-pin.mjs';
+import {createMobileVoice,createMobileCapture} from './mobile-voice.mjs';
 
 // Deploy with verify_jwt=false: the handler authenticates the existing private
 // owner session cookie, not a public Supabase key or a caller-supplied email.
@@ -24,11 +25,13 @@ Deno.serve(async (request: Request) => {
         const config = await store.rpc('cos_notes_get_config');
         return voiceAdapter[method]({...args, ownerId: config.telegramOwnerUserId});
       };
+      const mobileVoice=createMobileVoice({url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),groqApiKey:Deno.env.get('GROQ_API_KEY')});
+      const telegramVoice={model:voiceAdapter.model,save:(args:object)=>ownerVoice('save',args),transcribe:(args:object)=>ownerVoice('transcribe',args),read:(args:object)=>ownerVoice('read',args)};
       const inbox = createCommunicationInbox({store,
         model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY'),telegramModel:Deno.env.get('TELEGRAM_OPENROUTER_MODEL'),mailModel:Deno.env.get('GMAIL_OPENROUTER_MODEL')}),
-        voice: {model: voiceAdapter.model, save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
+        voice: {forItem:(item:any)=>item.source_meta?.channel==='android'?mobileVoice:telegramVoice},
       });
-      handler = withPinGate(createNotesHandler({store, inbox,media:createNoteMedia({store,url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')})}),{store});
+      handler = withPinGate(createNotesHandler({store, inbox,mobileCapture:createMobileCapture({store,inbox,voice:mobileVoice}),media:createNoteMedia({store,url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')})}),{store});
     }
     return await handler(request);
   } catch {

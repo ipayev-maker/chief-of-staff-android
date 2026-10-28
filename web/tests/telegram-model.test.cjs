@@ -73,3 +73,9 @@ test('provider health exposes only safe numeric daily free quota fields',async()
  assert.deepEqual(result.free_model_daily_requests,{used:2,limit:1000,remaining:998});
  assert.equal(JSON.stringify(result).includes('private'),false);
 });
+
+test('Android voice uses exactly the Telegram free model, including failures without paid fallback',async()=>{
+ const {model,calls,TELEGRAM_MODEL}=await fixture();await model({...args,channel:'android'});
+ assert.equal(calls[0].body.model,TELEGRAM_MODEL);assert.deepEqual(calls[0].body.response_format,{type:'json_object'});assert.equal(model.modelFor({channel:'android'}),TELEGRAM_MODEL);
+ const limited=await fixture({status:429});await assert.rejects(limited.model({...args,channel:'android'}));assert.equal(limited.calls.length,1);
+});

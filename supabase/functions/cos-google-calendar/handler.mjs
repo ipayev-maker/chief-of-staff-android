@@ -1,4 +1,4 @@
-import {PUBLIC_ORIGIN,allowedOrigin,validChallenge,beginTransfer,issueTransfer,finishTransfer} from './domain-bridge.mjs';
+import {PUBLIC_ORIGIN,ANDROID_RETURN,allowedOrigin,validChallenge,beginTransfer,issueTransfer,finishTransfer} from './domain-bridge.mjs';
 import { APP_ORIGIN, randomToken, sha256, encryptSecret, decryptSecret, safeEqual } from './google.mjs';
 import { syncCalendar, projectionHash } from './sync.mjs';
 import * as projector from '../../../web/calendar/projector.mjs';
@@ -121,7 +121,7 @@ export function createHandler({store, google, config, now = () => new Date(), ru
     const form = bridgeForm||await request.formData();
     const timeZone = validTimeZone(form.get('time_zone'));
     const requestedReturn = form.get('return_to');
-    const returnTo = inboxReturnTo(requestedReturn);
+    const returnTo = bridgeForm&&requestedReturn===ANDROID_RETURN?ANDROID_RETURN:inboxReturnTo(requestedReturn);
     if (requestedReturn !== null && requestedReturn !== '' && !returnTo) return json({error:'invalid_return_to'},400);
     const prior=await connection();
     if(!bridgeForm&&prior?.status==='connected'&&await ownerSession(request,prior))return redirect(request.headers.get('Origin')+'/?calendar=connected'+(returnTo||'#/today'));
@@ -144,7 +144,7 @@ export function createHandler({store, google, config, now = () => new Date(), ru
     if (states.length !== 1) return failed('invalid_state');
     // Only the consumed, browser-bound state controls the destination. Callback
     // query parameters cannot replace it; legacy pending states safely use '/'.
-    returnTo = inboxReturnTo(states[0].return_to);
+    returnTo = states[0].return_challenge&&states[0].return_to===ANDROID_RETURN?ANDROID_RETURN:inboxReturnTo(states[0].return_to);
     if (url.searchParams.has('error')) return failed('denied');
     const code = url.searchParams.get('code');
     if (!code || code.length > 4096) return failed('oauth_failed');

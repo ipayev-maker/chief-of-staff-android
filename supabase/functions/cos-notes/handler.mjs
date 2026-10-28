@@ -59,6 +59,7 @@ function resource(url) {
   if (!match) fail(404, 'not_found');
   const path = match[1] || '';
   if (!path) return {kind: 'notes', methods: ['GET', 'POST']};
+  if (path === 'mobile/voice') return {kind:'mobileVoice',methods:['POST']};
   if (path === 'tasks/origins') return {kind: 'taskOrigins', methods: ['GET']};
   const waitReply = /^tasks\/([^/]+)\/complete-wait$/.exec(path);
   if(waitReply)return {kind:'completeWait',id:resourceUuid(waitReply[1]),methods:['POST']};
@@ -251,7 +252,7 @@ function taskResult(result) {
  * authorizes reads/writes. Calendar connection status is deliberately ignored.
  * No caller-controlled email, anonymous key or Google token is accepted here.
  */
-export function createNotesHandler({store, media, now = () => new Date(), inbox = createCommunicationInbox({store, now})}) {
+export function createNotesHandler({store, media, mobileCapture, now = () => new Date(), inbox = createCommunicationInbox({store, now})}) {
   async function authenticate(request) {
     const token = sessionToken(request);
     if (!token) fail(401, 'unauthorized');
@@ -278,6 +279,11 @@ export function createNotesHandler({store, media, now = () => new Date(), inbox 
       if (!route.methods.includes(method)) return json({error: 'method_not_allowed'}, 405);
       if (method !== 'GET' && !allowedOrigin(request.headers.get('Origin'))) fail(403, 'invalid_origin');
       await authenticate(request);
+      if(route.kind==='mobileVoice'){
+        if(url.search||!mobileCapture)fail(400,'invalid_request');
+        try{return json(await mobileCapture(request));}
+        catch(error){if(error?.safeCode&&/^(?:voice_|invalid_mobile_|mobile_capture_)[a-z_]+$/.test(error.safeCode))fail([400,408,409,410,413,415,503].includes(error.status)?error.status:503,error.safeCode);throw error;}
+      }
       if(route.kind==='completeWait'){
         if(url.search)fail(400,'invalid_request');
         const data=await readJson(request);

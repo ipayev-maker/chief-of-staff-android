@@ -3,7 +3,9 @@ package ru.ipayev.chiefofstaff
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -13,113 +15,61 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private lateinit var taskList: LinearLayout
     private lateinit var stateText: TextView
+    private var loading = false
+    private var askingLogin = false
+    private var cancelledLogin = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(buildContent())
-        loadTasks()
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(28), dp(22), dp(32)) }
+        setContentView(ScrollView(this).apply { isFillViewport = true; setBackgroundColor(Color.rgb(245, 247, 251)); addView(root) })
+        applySystemInsets(root)
+        root.addView(label("Никодим", 26f))
+        root.addView(label("Версия 0.4.0 · голосовой ввод", 14f, muted = true).apply { margin(top = dp(4), bottom = dp(22)) })
+        root.addView(primaryButton("Записать сообщение").apply { setOnClickListener { startActivity(Intent(this@MainActivity, QuickCaptureActivity::class.java)) } })
+        root.addView(label("Задачи, встречи и заметки из голоса. Виджет на рабочем столе открывает запись одним нажатием.", 15f, muted = true).apply { margin(top = dp(12), bottom = dp(22)) })
+        root.addView(sectionTitle("Последние открытые задачи"))
+        stateText = label("", 15f, muted = true); root.addView(stateText)
+        root.addView(secondaryButton("Обновить / войти").apply { setOnClickListener { cancelledLogin = false; loadTasks() }; margin(top = dp(12), bottom = dp(14)) })
+        taskList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; root.addView(taskList)
+        root.addView(secondaryButton("Открыть дашборд").apply { setOnClickListener { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ApiClient.BASE_URL))) }; margin(top = dp(22)) })
+        root.addView(secondaryButton("Заблокировать приложение").apply { setOnClickListener { lock() }; margin(top = dp(10)) })
     }
-
-    override fun onResume() {
-        super.onResume()
-        if (::taskList.isInitialized) loadTasks()
+    override fun onResume() { super.onResume(); if (!askingLogin && !cancelledLogin) loadTasks() }
+    override fun onDestroy() { io.shutdown(); super.onDestroy() }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 10) { askingLogin = false; cancelledLogin = resultCode != RESULT_OK; if (cancelledLogin) stateText.text = "Для просмотра задач войдите через Google и введите PIN." }
     }
-
-    override fun onDestroy() {
-        io.shutdownNow()
-        super.onDestroy()
-    }
-
-    private fun buildContent(): ScrollView {
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.rgb(245, 247, 251))
-            isFillViewport = true
-        }
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(28), dp(22), dp(40))
-        }
-        scroll.addView(root)
-
-        root.addView(label("Chief of Staff", 30f).apply {
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        })
-        root.addView(label("Никодим · мобильный ввод", 15f, muted = true).apply { margin(top = dp(4)) })
-
-        val mic = primaryButton("🎙  Диктовать задачу").apply {
-            textSize = 18f
-            minHeight = dp(64)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, CaptureActivity::class.java).putExtra(CaptureActivity.EXTRA_AUTOSTART, true))
+    private fun loadTasks() {
+        if (loading || askingLogin) return; loading = true; stateText.text = "Загружаю…"
+        io.execute {
+            val result = runCatching { ApiClient.loadOpenTasks() }
+            runOnUiThread {
+                loading = false; if (isFinishing || isDestroyed) return@runOnUiThread
+                taskList.removeAllViews()
+                result.onSuccess { tasks ->
+                    stateText.text = if (tasks.isEmpty()) "Открытых задач нет." else ""
+                    tasks.forEach { task ->
+                        taskList.addView(label(task.description, 17f).apply { setPadding(0, dp(12), 0, dp(6)) })
+                        task.deadline?.let { taskList.addView(label("Срок: $it", 14f, muted = true)) }
+                    }
+                }.onFailure { error ->
+                    if (error is ApiClient.AccessRequired) { askingLogin = true; startActivityForResult(Intent(this, LoginActivity::class.java), 10) }
+                    else stateText.text = error.message ?: "Не удалось загрузить задачи."
+                }
             }
         }
-        root.addView(mic)
-        mic.margin(top = dp(26), bottom = dp(8))
-
-        root.addView(label("То же самое можно вынести на домашний экран как виджет «Никодим»: один тап сразу открывает диктовку.", 13f, muted = true))
-
-        stateText = label("Загружаю задачи…", 13f, muted = true)
-        root.addView(sectionTitle("Последние открытые задачи").apply { margin(top = dp(32), bottom = dp(10)) })
-        root.addView(stateText)
-
-        taskList = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        root.addView(taskList)
-
-        root.addView(sectionTitle("Как работает голосовой ввод").apply { margin(top = dp(32), bottom = dp(10)) })
-        val steps = listOf(
-            "1. Нажать виджет или кнопку выше.",
-            "2. Продиктовать одну или несколько задач обычной речью.",
-            "3. Никодим разберёт задачи, проект, срок и контекст.",
-            "4. Проверить черновики и нажать «Создать задачи»."
-        )
-        steps.forEach { text ->
-            root.addView(label(text, 14f).apply {
-                setPadding(0, dp(4), 0, dp(4))
-            })
-        }
-        return scroll
     }
-
-    private fun loadTasks() {
-        stateText.text = "Загружаю задачи…"
+    private fun lock() {
+        if (loading) return
+        loading = true; taskList.removeAllViews(); cancelledLogin = true
         io.execute {
-            runCatching { ApiClient.loadOpenTasks() }
-                .onSuccess { tasks ->
-                    runOnUiThread {
-                        stateText.text = if (tasks.isEmpty()) "Открытых задач нет." else ""
-                        taskList.removeAllViews()
-                        tasks.forEach { task ->
-                            val box = LinearLayout(this).apply {
-                                orientation = LinearLayout.VERTICAL
-                                setPadding(dp(14), dp(12), dp(14), dp(12))
-                                background = roundedDrawable(Color.WHITE, dp(14).toFloat(), Color.rgb(215, 222, 232), dp(1))
-                            }
-                            box.addView(label(task.description, 15f).apply {
-                                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                            })
-                            val meta = buildString {
-                                append(directionLabel(task.direction))
-                                task.deadline?.let { append(" · срок $it") }
-                            }
-                            box.addView(label(meta, 12f, muted = true).apply { margin(top = dp(5)) })
-                            taskList.addView(box)
-                            box.margin(bottom = dp(8))
-                        }
-                    }
-                }
-                .onFailure { e ->
-                    runOnUiThread {
-                        stateText.text = "Не удалось загрузить задачи: ${e.message ?: "ошибка сети"}"
-                    }
-                }
+            runCatching { ApiClient.lock() }
+            // Remove local access even if the server is temporarily unreachable.
+            SecureSession.clearPin()
+            runOnUiThread { loading = false; if (!isDestroyed) stateText.text = "Приложение заблокировано. Для входа нажмите «Обновить / войти»." }
         }
-    }
-
-    private fun directionLabel(direction: String): String = when (direction) {
-        "from_me" -> "Мне сделать"
-        "to_me" -> "Жду от другого"
-        else -> "Моя задача"
     }
 }

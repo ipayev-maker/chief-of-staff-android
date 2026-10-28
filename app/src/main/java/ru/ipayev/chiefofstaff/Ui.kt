@@ -63,3 +63,19 @@ fun Context.sectionTitle(text: String): TextView = label(text, 13f, muted = true
     gravity = Gravity.START
     letterSpacing = 0.04f
 }
+
+/** Target SDK 35 lays out edge-to-edge; keep every form clear of system bars and IME. */
+fun android.app.Activity.applySystemInsets(view: View) {
+    val left = view.paddingLeft; val top = view.paddingTop; val right = view.paddingRight; val bottom = view.paddingBottom
+    view.setOnApplyWindowInsetsListener { target, insets ->
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val safe = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout() or android.view.WindowInsets.Type.ime())
+            target.setPadding(left + safe.left, top + safe.top, right + safe.right, bottom + safe.bottom)
+        } else {
+            @Suppress("DEPRECATION")
+            target.setPadding(left + insets.systemWindowInsetLeft, top + insets.systemWindowInsetTop, right + insets.systemWindowInsetRight, bottom + insets.systemWindowInsetBottom)
+        }
+        insets
+    }
+    view.requestApplyInsets()
+}

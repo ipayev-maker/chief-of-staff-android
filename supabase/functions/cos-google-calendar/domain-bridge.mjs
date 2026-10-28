@@ -2,6 +2,7 @@
 // the original domain; neither session tokens nor credentials enter URLs.
 import {APP_ORIGIN,randomToken,sha256,encryptSecret,decryptSecret} from './google.mjs';
 export const PUBLIC_ORIGIN='https://nikodim.vercel.app';
+export const ANDROID_RETURN='/android';
 export const allowedOrigin=origin=>[APP_ORIGIN,PUBLIC_ORIGIN].includes(origin);
 const TABLE='cos_auth_transfers',COOKIE='__Host-cos-auth-transfer';
 const headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'};
@@ -20,7 +21,9 @@ export async function issueTransfer({store,config,now,session,challenge,service,
   const code=randomToken();
   await store.remove(TABLE,'expires_at=lt.'+encodeURIComponent(now().toISOString()));
   await store.insert(TABLE,{code_hash:await sha256(code),browser_hash:challenge,session_cipher:await encryptSecret(session,config.tokenKey),service,return_to:returnTo||null,expires_at:new Date(+now()+120000).toISOString()});
-  return PUBLIC_ORIGIN+'/api/google-calendar/bridge-finish?code='+encodeURIComponent(code);
+  // Only an opaque, one-use, PKCE-bound code enters the Android deep link.
+  // The session remains encrypted until the initiating app proves its verifier.
+  return (service==='calendar'&&returnTo===ANDROID_RETURN?'ru.ipayev.chiefofstaff://auth':'https://nikodim.vercel.app/api/google-calendar/bridge-finish')+'?code='+encodeURIComponent(code);
 }
 export async function finishTransfer({request,store,config,now}){
   const code=new URL(request.url).searchParams.get('code'),verifier=(request.headers.get('Cookie')||'').split(';').map(v=>v.trim().split('=')).find(v=>v[0]===COOKIE)?.[1];
