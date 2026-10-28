@@ -117,7 +117,7 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
             if(body){
               if(!/^application\/json(?:\s*;|$)/i.test(request.headers.get('Content-Type')||''))return json({error:'invalid_request'},400);
               options=JSON.parse(body);
-              if(!options||Array.isArray(options)||Object.keys(options).length!==1||options.probe!==true)return json({error:'invalid_request'},400);
+              if(!options||Array.isArray(options)||Object.keys(options).length!==1||!(options.probe===true||options.voice_probe===true))return json({error:'invalid_request'},400);
             }
           }catch{return json({error:'invalid_request'},400);}
           return json({analysis:await health(options)});

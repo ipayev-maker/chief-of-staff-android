@@ -1,5 +1,6 @@
 import {modelHealth} from '../cos-gmail/health.mjs';
 import {voiceConfiguration} from '../telegram-webhook/voice.mjs';
+import {probeVoice} from '../telegram-webhook/voice-probe.mjs';
 import {probeCommunicationModel} from '../cos-notes/communication-probe.mjs';
 import { createStore } from './store.mjs';
 import { createGoogle } from './google.mjs';
@@ -24,7 +25,8 @@ Deno.serve(async (request: Request) => {
       // One app owner may use a work mailbox and a personal calendar.
       // Only the exact server-configured Gmail address can authorize mail.
       const gmailConfig={...config,allowedEmail:config.gmailAllowedEmail??config.allowedEmail};
-      const gmail=createGmailHandler({store,google:createGoogle({config:gmailConfig,scopes:GMAIL_SCOPES}),config:gmailConfig,analyze:item=>inbox.process(item),recover:item=>inbox.recover(item.id),deliver:item=>inbox.deliverMail(item.id),health:async({probe}: {probe?: boolean}={})=>({...await modelHealth({key:Deno.env.get('OPENROUTER_KEY')}),transcription:voiceConfiguration({groqApiKey:Deno.env.get('GROQ_API_KEY'),openRouterKey:Deno.env.get('OPENROUTER_KEY'),transcriptionProvider:Deno.env.get('VOICE_TRANSCRIPTION_PROVIDER')}),...(probe?{probe:await probeCommunicationModel(model)}:{})})});
+      const voiceConfig=()=>({groqApiKey:Deno.env.get('GROQ_API_KEY'),openRouterKey:Deno.env.get('OPENROUTER_KEY'),transcriptionProvider:Deno.env.get('VOICE_TRANSCRIPTION_PROVIDER')});
+      const gmail=createGmailHandler({store,google:createGoogle({config:gmailConfig,scopes:GMAIL_SCOPES}),config:gmailConfig,analyze:item=>inbox.process(item),recover:item=>inbox.recover(item.id),deliver:item=>inbox.deliverMail(item.id),health:async({probe,voice_probe}: {probe?: boolean;voice_probe?: boolean}={})=>({...await modelHealth({key:Deno.env.get('OPENROUTER_KEY')}),transcription:voiceConfiguration(voiceConfig()),...(probe?{probe:await probeCommunicationModel(model)}:{}),...(voice_probe?{voice_probe:await probeVoice(voiceConfig())}:{})})});
       cachedHandler=withPinGate(request=>{const url=new URL(request.url);return url.pathname.includes('/gmail/')||url.pathname.endsWith('/callback')&&url.searchParams.get('state')?.startsWith('gmail.')?gmail(request):calendar(request)},{store,google:true});
       cacheUntil = Date.now() + 60000;
     }
