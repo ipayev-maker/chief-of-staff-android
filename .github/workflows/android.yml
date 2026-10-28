@@ -32,13 +32,14 @@ jobs:
           ls "$ANDROID_HOME/platforms" | tail -20
 
       - name: Build and lint Android
-        run: gradle :app:assembleDebug :app:assembleRelease :app:lintDebug --stacktrace
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: nikodim-android-0.4.2
+          name: nikodim-android-0.4.3
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release-unsigned.apk
             app/build/reports/lint-results-debug.html
+            app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: error
