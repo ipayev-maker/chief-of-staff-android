@@ -46,11 +46,13 @@ test('health authenticates before reading the probe body and preserves empty-bod
  assert.equal((await handler(new Request('https://app.test/gmail/health',{method:'POST',headers:{Authorization:'Bearer test-cron'}}))).status,200);assert.deepEqual(calls,[{}]);
  const request=new Request('https://app.test/gmail/health',{method:'POST',headers:{Authorization:'Bearer test-cron','Content-Type':'application/json'},body:'{"probe":true}'});
  assert.equal((await handler(request)).status,200);assert.deepEqual(calls.at(-1),{probe:true});
+ const voiceRequest=new Request('https://app.test/gmail/health',{method:'POST',headers:{Authorization:'Bearer test-cron','Content-Type':'application/json'},body:'{"voice_probe":true}'});
+ assert.equal((await handler(voiceRequest)).status,200);assert.deepEqual(calls.at(-1),{voice_probe:true});
 });
 test('health rejects arbitrary probe inputs, non-JSON bodies and oversized streams',async()=>{
  const {createGmailHandler}=await import(root+'cos-gmail/handler.mjs');let calls=0;
  const handler=createGmailHandler({config:{cronSecret:'test-cron'},health:async()=>{calls++;return {};}});
- for(const body of ['{}','null','[]','{"probe":false}','{"probe":true,"text":"private"}','{"model":"x"}','{',' '.repeat(129)]){
+ for(const body of ['{}','null','[]','{"probe":false}','{"voice_probe":false}','{"voice_probe":true,"url":"https://private.invalid"}','{"voice_probe":true,"probe":true}','{"probe":true,"text":"private"}','{"model":"x"}','{',' '.repeat(129)]){
   const request=new Request('https://app.test/gmail/health',{method:'POST',headers:{Authorization:'Bearer test-cron','Content-Type':'application/json'},body});
   assert.equal((await handler(request)).status,400,body);
  }
