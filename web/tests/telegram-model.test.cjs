@@ -15,9 +15,10 @@ test('Telegram text and voice transcripts use the pinned free model and enforce 
   const {model,calls,TELEGRAM_MODEL}=await fixture();
   const result=await model({...args,channel:'telegram'});
   assert.equal(calls[0].body.model,TELEGRAM_MODEL);
-  assert.equal(calls[0].body.model,'google/gemma-4-31b-it:free');
+  assert.equal(calls[0].body.model,'dots-studio/dots-3-note-preview:free');
   assert.deepEqual(calls[0].body.response_format,{type:'json_object'});
   assert.equal(calls[0].body.provider.require_parameters,true);
+  assert.equal(calls[0].body.provider.data_collection,'deny');
   assert.equal(calls[0].body.reasoning.enabled,false);
   assert.equal(result.model,TELEGRAM_MODEL);
   assert.equal(result.usage.cost,0);
@@ -26,7 +27,7 @@ test('Gmail uses the free model for initial and repeated analysis while other ca
   const {model,calls}=await fixture();
   await model({...args,channel:'telegram',mail:{type:'gmail'}});
   await model(args);
-  assert.equal(calls[0].body.model,'google/gemma-4-31b-it:free');
+  assert.equal(calls[0].body.model,'dots-studio/dots-3-note-preview:free');
   assert.deepEqual(calls[0].body.response_format,{type:'json_object'});
   assert.equal(calls[1].body.model,'anthropic/claude-sonnet-4.6');
   assert.equal(calls[1].body.response_format,undefined);
@@ -35,7 +36,7 @@ test('a free-model outage never silently spends credits on paid fallback',async(
   const {model,calls}=await fixture({status:429});
   await assert.rejects(model({...args,channel:'telegram'}),e=>e.code==='analysis_unavailable'&&e.provider_status===429);
   assert.equal(calls.length,1);
-  assert.ok(calls[0].body.model.endsWith(':free'));
+  assert.equal(calls[0].body.model,'dots-studio/dots-3-note-preview:free');
 });
 test('truncated or malformed generations are rejected before normalization',async()=>{
   for(const options of [{finish:'length'},{finish:'error'},{content:'not json'}]){
@@ -44,10 +45,10 @@ test('truncated or malformed generations are rejected before normalization',asyn
   }
 });
 test('analysis records the returned provider model and exposes the requested model before inference',async()=>{
-  const {model,TELEGRAM_MODEL}=await fixture({actualModel:'google/gemma-4-31b-it:free'});
+  const {model,TELEGRAM_MODEL}=await fixture({actualModel:'dots-studio/dots-3-note-preview:free'});
   assert.equal(model.modelFor({channel:'telegram'}),TELEGRAM_MODEL);
   assert.equal(model.modelFor({channel:'telegram',mail:true}),TELEGRAM_MODEL);
-  assert.equal((await model({...args,channel:'telegram'})).model,'google/gemma-4-31b-it:free');
+  assert.equal((await model({...args,channel:'telegram'})).model,'dots-studio/dots-3-note-preview:free');
 });
 test('source channel survives analyze and re-analysis, including failed generation metadata',async()=>{
   const {createCommunicationInbox}=await import(modulePath);
@@ -64,4 +65,11 @@ test('source channel survives analyze and re-analysis, including failed generati
   const second=await inbox.analyze(id,{revision:row.revision,correction:'Сегодня в 12 встреча с Вяловой'});
   assert.equal(second.item.proposal.analysis.model,TELEGRAM_MODEL);
   assert.equal(second.item.proposal.analysis.attempts,2);
+});
+
+test('provider health exposes only safe numeric daily free quota fields',async()=>{
+ const {modelHealth}=await import('../../supabase/functions/cos-gmail/health.mjs');
+ const result=await modelHealth({key:'test',fetchImpl:async url=>Response.json({data:url.endsWith('/key')?{free_model_daily_requests:{used:2,limit:1000,remaining:998,label:'private'}}:{total_credits:10,total_usage:3}})});
+ assert.deepEqual(result.free_model_daily_requests,{used:2,limit:1000,remaining:998});
+ assert.equal(JSON.stringify(result).includes('private'),false);
 });
