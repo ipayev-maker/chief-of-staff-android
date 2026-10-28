@@ -1,8 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const token='a'.repeat(43),origin='https://nikodim.vercel.app',now=()=>new Date('2026-10-26T12:00:00Z');
-async function fixture({session='owner',expires='2026-11-01T00:00:00Z'}={}){
+async function fixture({session='owner',expires='2026-11-01T00:00:00Z',unlocked=true}={}){
  const {createDashboardHandler}=await import('../../supabase/functions/cos-dashboard/handler.mjs');const reads=[],calls=[],removed=[];
- const store={rpc:async()=>({authenticated:true,unlocked:true,setupRequired:false,retryAfter:0}),list:async(t,q)=>{reads.push([t,q]);return t==='cos_calendar_connection'?[{google_sub:'owner',email:'owner@example.test'}]:session?[{google_sub:session,expires_at:expires}]:[]},remove:async(...args)=>removed.push(args),page:async()=>[]};
+ const store={rpc:async()=>({authenticated:true,unlocked,setupRequired:false,retryAfter:0}),list:async(t,q)=>{reads.push([t,q]);return t==='cos_calendar_connection'?[{google_sub:'owner',email:'owner@example.test'}]:session?[{google_sub:session,expires_at:expires}]:[]},remove:async(...args)=>removed.push(args),page:async()=>[]};
  const handler=createDashboardHandler({store,url:'https://db.example.test',serviceKey:'server-only-secret',now,fetchImpl:async(url,opt)=>{calls.push({url:String(url),...opt});return new Response('[]',{headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Content-Range':'0-0/1'}})}});
  const request=(route,options={})=>new Request(origin+'/api/data'+route,{...options,headers:{Cookie:'__Host-cos-calendar-session='+token,...(options.method&&options.method!=='GET'?{Origin:origin}:{}),...options.headers}});
  return {handler,request,reads,calls,removed};
@@ -59,4 +59,25 @@ test('legacy guard rejects missing/public credentials before invoking the protec
   for(const headers of [{},{apikey:'public'},{Authorization:'Bearer '+('public'.repeat(10))}])assert.equal((await served(new Request(origin,{headers}))).status,401);
   assert.equal(calls,0);assert.equal((await served(new Request(origin,{headers:{Authorization:'Bearer '+secret}}))).status,200);assert.equal(calls,1);
  }finally{global.Deno=previous}
+});
+
+test('the shipped Android startup URL is deployed and retains Google, PIN and private-table guards',async()=>{
+ const client=fs.readFileSync(path.resolve(__dirname,'../../app/src/main/java/ru/ipayev/chiefofstaff/ApiClient.kt'),'utf8');
+ const literal=client.match(/connection\("GET", "([^"]*commitments\?[^"]*)"\)/)?.[1];
+ assert.ok(literal,'read the actual URL used by the shipped app, not a second test-only URL');
+ const url=new URL(literal.replace('$limit','1'),origin),config=require('../vercel.json');
+ function rewritten(input){
+  const rule=config.rewrites.find(r=>r.source.endsWith(':path*')&&input.pathname.startsWith(r.source.split(':path*')[0]));
+  assert.ok(rule,'native startup URL must have a deployed rewrite; otherwise 404 prevents opening LoginActivity');
+  const destination=new URL(rule.destination.replace(':path*',input.pathname.slice(rule.source.split(':path*')[0].length)));destination.search=input.search;return destination;
+ }
+ const destination=rewritten(url);
+ assert.equal(destination.origin,'https://spabmyyxiufuzsaydrmx.supabase.co');
+ assert.equal(destination.pathname,'/functions/v1/cos-dashboard/rest/v1/commitments');
+ const makeRequest=(target,owner=true)=>new Request(target,{headers:{Origin:origin,...(owner?{Cookie:'__Host-cos-calendar-session='+token}:{})}});
+ const anonymous=await fixture();assert.equal((await anonymous.handler(makeRequest(destination,false))).status,401);assert.equal(anonymous.calls.length,0);
+ const locked=await fixture({unlocked:false});assert.equal((await locked.handler(makeRequest(destination))).status,423);assert.equal(locked.calls.length,0);
+ const owner=await fixture();assert.equal((await owner.handler(makeRequest(destination))).status,200);assert.equal(owner.calls[0].url,'https://db.example.test/rest/v1/commitments'+url.search);
+ const privateTarget=rewritten(new URL('/api/data/rest/v1/cos_calendar_sessions',origin));assert.equal((await owner.handler(makeRequest(privateTarget))).status,404);assert.equal(owner.calls.length,1);
+ const cache=config.headers.find(r=>r.source==='/api/data/rest/v1/:path*');assert.ok(cache);assert.ok(cache.headers.some(h=>h.key==='Cache-Control'&&h.value.includes('no-store')));
 });
