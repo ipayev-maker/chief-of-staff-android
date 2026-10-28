@@ -4,9 +4,9 @@ const implementation=import('../../supabase/functions/telegram-webhook/voice.mjs
 const ID='12345678-1234-4123-8123-123456789abc';
 const voice={file_id:'synthetic-file',file_unique_id:'synthetic-unique',duration:30,file_size:64,mime_type:'audio/ogg'};
 const bytes=()=>{const value=new Uint8Array(64);value.set([79,103,103,83]);return value};
-async function fixture(){
+async function fixture(options={}){
   const {createVoiceAdapter}=await implementation,calls=[],env={badFilePath:null,downloadBytes:null,failUpload:false,overrides:{},transcript:'После звонка: отправить чертёж завтра.'};
-  env.adapter=createVoiceAdapter({url:'https://project.supabase.co',serviceKey:'service-test',botToken:'bot-test',openRouterKey:'ai-test',fetchImpl:async(url,init={})=>{
+  env.adapter=createVoiceAdapter({url:'https://project.supabase.co',serviceKey:'service-test',botToken:'bot-test',openRouterKey:'ai-test',...options,fetchImpl:async(url,init={})=>{
     calls.push({url,init});
     const stage=url.includes('/getFile')?'telegram_file':url.includes('/file/bot')?'telegram_download':url.includes('/storage/')?(init.method==='POST'?'storage_write':'storage_read'):url.includes('/audio/transcriptions')?'transcription':null;
     if(env.overrides[stage])return env.overrides[stage]();
@@ -60,4 +60,47 @@ test('Telegram API errors and malformed JSON are diagnosed without persisting de
 test('audio stream failures preserve the download stage and timeout classification',async()=>{
   const env=await fixture();env.overrides.telegram_download=()=>new Response(new ReadableStream({start(controller){controller.error(new DOMException('private file URL','TimeoutError'))}}));
   await assert.rejects(env.save(),{message:'voice_telegram_download_timeout'});assert.equal(env.calls.length,2);
+});
+
+
+test('Groq uploads original private OGG bytes as multipart with a separate credential',async()=>{
+  const env=await fixture({groqApiKey:'groq-synthetic'});
+  assert.equal(await env.transcribe(),env.transcript);
+  assert.equal(env.adapter.provider,'groq');assert.equal(env.adapter.model,'groq/whisper-large-v3');
+  assert.equal(env.calls.length,2);
+  const call=env.calls[1];assert.equal(call.url,'https://api.groq.com/openai/v1/audio/transcriptions');
+  assert.deepEqual(call.init.headers,{Authorization:'Bearer groq-synthetic'});
+  assert.equal(call.init.redirect,'error');assert.ok(call.init.signal instanceof AbortSignal);
+  const body=call.init.body;assert.ok(body instanceof FormData);
+  assert.deepEqual([...body.keys()].sort(),['file','language','model','response_format','temperature']);
+  assert.equal(body.get('model'),'whisper-large-v3');assert.equal(body.get('language'),'ru');assert.equal(body.get('temperature'),'0');assert.equal(body.get('response_format'),'json');
+  const file=body.get('file');assert.equal(file.name,'voice.ogg');assert.equal(file.type,'audio/ogg');
+  assert.deepEqual(Buffer.from(await file.arrayBuffer()),Buffer.from(bytes()));
+  assert.equal(env.calls.some(c=>c.url.includes('openrouter')),false);
+});
+test('Groq errors preserve the source and never call the paid provider',async()=>{
+ for(const status of [401,429,500]){
+  const env=await fixture({groqApiKey:'groq-synthetic'});
+  env.overrides.transcription=()=>new Response('PRIVATE_PROVIDER_BODY',{status});
+  await assert.rejects(env.transcribe(),e=>e.safeCode==='voice_transcription_'+({401:'unauthorized',429:'rate_limited',500:'server_error'}[status]));
+  assert.equal(env.calls.length,2);assert.equal(env.calls.some(c=>c.url.includes('openrouter')),false);
+ }
+});
+test('forcing Groq without a key does not read audio or silently use OpenRouter',async()=>{
+ const env=await fixture({transcriptionProvider:'groq'});
+ await assert.rejects(env.transcribe(),{message:'voice_transcription_unavailable'});assert.equal(env.calls.length,0);
+});
+test('Groq network and invalid transcript failures remain bounded and redacted',async()=>{
+ for(const override of [()=>{throw new DOMException('private','TimeoutError')},()=>new Response('not json'),()=>Response.json({text:''}),()=>Response.json({text:'x'.repeat(20001)})]){
+  const env=await fixture({groqApiKey:'groq-synthetic'});env.overrides.transcription=override;
+  await assert.rejects(env.transcribe(),e=>/^voice_[a-z_]+$/.test(e.safeCode)&&!e.message.includes('private'));
+  assert.equal(env.calls.length,2);
+ }
+});
+test('voice configuration exposes only provider identity and key presence',async()=>{
+ const {voiceConfiguration}=await implementation;
+ assert.deepEqual(voiceConfiguration({groqApiKey:'g-private',openRouterKey:'o-private'}),{provider:'groq',model:'groq/whisper-large-v3',configured:true,groq_configured:true});
+ assert.equal(voiceConfiguration({openRouterKey:'o-private'}).provider,'openrouter');
+ assert.equal(voiceConfiguration({groqApiKey:'g-private',openRouterKey:'o-private',transcriptionProvider:'openrouter'}).provider,'openrouter');
+ assert.throws(()=>voiceConfiguration({transcriptionProvider:'https://other.invalid'}),{message:'voice_invalid_provider'});
 });

@@ -1,6 +1,7 @@
 // Telegram voice notes are stored privately before transcription. Native Web APIs
 // only: Deno 2 / Node 24. Never return Telegram file URLs or log upstream bodies.
 export const TRANSCRIPTION_MODEL='openai/gpt-4o-transcribe';
+export const GROQ_TRANSCRIPTION_MODEL='whisper-large-v3';
 export const VOICE_MAX_BYTES=10*1024*1024;
 export const VOICE_MAX_SECONDS=600;
 const bad=code=>{throw Object.assign(new Error(code),{safeCode:code})};
@@ -32,7 +33,17 @@ async function readBounded(response,stage,max=VOICE_MAX_BYTES){
 }
 function base64(bytes){let result='';for(let i=0;i<bytes.length;i+=32768)result+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(result)}
 function validOgg(bytes){return bytes.length>=32&&bytes[0]===79&&bytes[1]===103&&bytes[2]===103&&bytes[3]===83}
-export function createVoiceAdapter({url,serviceKey,botToken,openRouterKey,fetchImpl=fetch,bucket='cos-communication-audio'}){
+// Before the Groq key is provisioned, preserve the explicitly reported legacy
+// installation. Once selected, Groq failures NEVER fall back to paid inference.
+// An operator can pin either provider; no model or URL comes from a message.
+export function voiceConfiguration({groqApiKey,openRouterKey,transcriptionProvider}={}){
+  const provider=transcriptionProvider|| (groqApiKey?'groq':'openrouter');
+  if(!['groq','openrouter'].includes(provider))bad('voice_invalid_provider');
+  return {provider,model:provider==='groq'?'groq/'+GROQ_TRANSCRIPTION_MODEL:TRANSCRIPTION_MODEL,
+    configured:!!(provider==='groq'?groqApiKey:openRouterKey),groq_configured:!!groqApiKey};
+}
+export function createVoiceAdapter({url,serviceKey,botToken,openRouterKey,groqApiKey,transcriptionProvider,fetchImpl=fetch,bucket='cos-communication-audio'}){
+  const config=voiceConfiguration({groqApiKey,openRouterKey,transcriptionProvider});
   const base=String(url||'').replace(/\/$/,'');
   const privatePath=(owner,id)=>{if(!/^[1-9]\d*$/.test(String(owner))||!UUID.test(id||''))bad('voice_invalid_target');return String(owner)+'/'+id+'/voice.ogg'};
   const storageHeaders=()=>{if(!base||!serviceKey)bad('voice_storage_unavailable');return {apikey:serviceKey,Authorization:'Bearer '+serviceKey}};
@@ -45,7 +56,8 @@ export function createVoiceAdapter({url,serviceKey,botToken,openRouterKey,fetchI
     try{return await response.json()}catch(error){if(['TimeoutError','AbortError'].includes(error?.name))transportFailure(stage,error);bad(stage+'_invalid_response')}
   }
   return {
-    model:TRANSCRIPTION_MODEL,
+    model:config.model,
+    provider:config.provider,
     async read({ownerId,communicationId}){
       const path=privatePath(ownerId,communicationId);
       const response=await request(base+'/storage/v1/object/authenticated/'+bucket+'/'+path,{headers:storageHeaders(),redirect:'error',signal:AbortSignal.timeout(12000)},'voice_storage_read');
@@ -64,13 +76,25 @@ export function createVoiceAdapter({url,serviceKey,botToken,openRouterKey,fetchI
       return {bucket,path,mime_type:'audio/ogg',size_bytes:bytes.byteLength,duration_seconds:normalized.duration};
     },
     async transcribe({ownerId,communicationId}){
-      if(!openRouterKey)bad('voice_transcription_unavailable');
+      if(!config.configured)bad('voice_transcription_unavailable');
       const path=privatePath(ownerId,communicationId);
       const response=await request(base+'/storage/v1/object/authenticated/'+bucket+'/'+path,{headers:storageHeaders(),redirect:'error',signal:AbortSignal.timeout(12000)},'voice_storage_read');
       const bytes=await readBounded(response,'voice_storage_read');if(!validOgg(bytes))bad('voice_format');
-      // Existing OpenRouter account; dedicated STT endpoint, no new SDK or key.
-      // https://openrouter.ai/docs/api/api-reference/stt/create-transcription
-      const data=await jsonRequest('https://openrouter.ai/api/v1/audio/transcriptions',{model:TRANSCRIPTION_MODEL,input_audio:{data:base64(bytes),format:'ogg'},language:'ru',response_format:'json'},{Authorization:'Bearer '+openRouterKey},'voice_transcription',35000);
+      let data;
+      if(config.provider==='groq'){
+        // Direct file upload: private storage and Telegram token URLs never
+        // leave this service. Fetch sets the multipart boundary itself.
+        const body=new FormData();
+        body.set('file',new Blob([bytes],{type:'audio/ogg'}),'voice.ogg');
+        body.set('model',GROQ_TRANSCRIPTION_MODEL);body.set('language','ru');
+        body.set('temperature','0');body.set('response_format','json');
+        const reply=await request('https://api.groq.com/openai/v1/audio/transcriptions',{
+          method:'POST',redirect:'error',headers:{Authorization:'Bearer '+groqApiKey},body,signal:AbortSignal.timeout(35000)
+        },'voice_transcription');
+        try{data=await reply.json()}catch(error){if(['TimeoutError','AbortError'].includes(error?.name))transportFailure('voice_transcription',error);bad('voice_transcription_invalid_response')}
+      }else{
+        data=await jsonRequest('https://openrouter.ai/api/v1/audio/transcriptions',{model:TRANSCRIPTION_MODEL,input_audio:{data:base64(bytes),format:'ogg'},language:'ru',response_format:'json'},{Authorization:'Bearer '+openRouterKey},'voice_transcription',35000);
+      }
       const text=typeof data?.text==='string'?data.text.trim():'';if(!text)bad('voice_no_speech');if(text.length>20000)bad('voice_transcript_too_long');return text;
     }
   };

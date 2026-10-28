@@ -18,6 +18,7 @@ Deno.serve(async (request: Request) => {
       const voiceAdapter = createVoiceAdapter({
         url: Deno.env.get('SUPABASE_URL'), serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
         botToken: Deno.env.get('TELEGRAM_BOT_TOKEN'), openRouterKey: Deno.env.get('OPENROUTER_KEY'),
+        groqApiKey: Deno.env.get('GROQ_API_KEY'), transcriptionProvider: Deno.env.get('VOICE_TRANSCRIPTION_PROVIDER'),
       });
       const ownerVoice = async (method: 'save' | 'transcribe' | 'read', args: object) => {
         const config = await store.rpc('cos_notes_get_config');
