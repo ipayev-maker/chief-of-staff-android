@@ -215,3 +215,18 @@ test('manual task can become a meeting with explicit date and time, but cannot t
  await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:[changed]}});
  const action=f.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0];assert.equal(action.kind,'meeting_create');assert.equal(action.meeting.starts_at,'2026-10-02T10:00:00.000Z');
 });
+
+test('Android selects its own private audio adapter, persists Groq provenance and applies meetings through shared confirmation',async()=>{
+ const {createCommunicationInbox}=await import(modulePath);let transcribed=0;
+ const source='Завтра в 12 встреча с Анной.';
+ const fixture=setup({source:'[Голосовое сообщение]',meta:{channel:'android',type:'voice',audio_path:'android/'+id+'/voice.m4a'},raw:{summary:'Встреча',questions:[],changes:[{kind:'meeting_create',text:'Встреча с Анной',evidence:source,participant_name:'Анна',participant_mention:'Анной'}]}});
+ fixture.context.cos_calendar_connection=[{time_zone:'Europe/Moscow'}];
+ fixture.voice={forItem:item=>{assert.equal(item.source_meta.channel,'android');return {model:'groq/whisper-large-v3',transcribe:async()=>{transcribed++;return source;},read:async()=>new Response('audio')}}};
+ const service=createCommunicationInbox(fixture),{item}=await service.analyze(id,{revision:1});
+ assert.equal(item.status,'ready');assert.equal(transcribed,1);assert.equal(item.proposal.analysis.transcription_model,'groq/whisper-large-v3');
+ assert.equal(item.proposal.changes[0].meeting_date,'2026-10-01');assert.equal(item.proposal.changes[0].meeting_time,'12:00');assert.equal(item.proposal.changes[0].participant_id,person);
+ assert.equal(fixture.calls.some(c=>c[0]==='cos_inbox_apply'),false);
+ await service.apply(id,{revision:item.revision,request_id:uuid(),proposal:{version:1,changes:item.proposal.changes}});
+ assert.equal(fixture.calls.find(c=>c[0]==='cos_inbox_apply')[1].p_actions[0].kind,'meeting_create');
+ assert.equal(await (await service.audio(id)).text(),'audio');
+});

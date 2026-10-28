@@ -210,3 +210,32 @@ test('Nikodim login returns through the registered callback with a browser-bound
 test('Nikodim transfer cannot be initiated by an unrelated origin or invalid challenge',async()=>{
  const f=await fixture();const response=await f.handler(new Request(BASE+'bridge-start?challenge=bad&time_zone=Europe/Moscow'));assert.equal(response.status,400);assert.equal(f.data.size,0);
 });
+
+test('Android sign-in issues only a PKCE-bound code and cannot be exchanged by another app',async()=>{
+ const f=await fixture(),verifier='synthetic-android-verifier',challenge=await f.helpers.sha256(verifier);
+ const bridge=await f.handler(new Request(BASE+'bridge-start?challenge='+challenge+'&time_zone=Europe/Moscow&return_to=/android'));
+ assert.equal(bridge.status,303);
+ const flow={state:new URL(bridge.headers.get('Location')).searchParams.get('state'),flow:bridge.headers.getSetCookie()[0].split(';')[0]};
+ const response=await f.finish(flow),deepLink=new URL(response.headers.get('Location'));
+ assert.equal(deepLink.protocol,'ru.ipayev.chiefofstaff:');assert.equal(deepLink.hostname,'auth');
+ assert.deepEqual([...deepLink.searchParams.keys()],['code']);assert.equal(f.table('cos_auth_transfers').length,1);
+ const finishUrl='https://nikodim.vercel.app/api/google-calendar/bridge-finish?code='+deepLink.searchParams.get('code');
+ const stolen=await f.handler(new Request(finishUrl,{headers:{Cookie:'__Host-cos-auth-transfer=other-app'}}));
+ assert.match(stolen.headers.get('Location'),/invalid_state/);assert.equal(f.table('cos_auth_transfers').length,1);
+ const finished=await f.handler(new Request(finishUrl,{headers:{Cookie:'__Host-cos-auth-transfer='+verifier}}));
+ assert.ok(finished.headers.getSetCookie().some(c=>c.startsWith('__Host-cos-calendar-session=')));
+ assert.equal(finished.headers.getSetCookie().some(c=>c.startsWith('__Host-cos-pin-session=')),false);
+ assert.equal(f.table('cos_auth_transfers').length,0);
+ const replay=await f.handler(new Request(finishUrl,{headers:{Cookie:'__Host-cos-auth-transfer='+verifier}}));
+ assert.match(replay.headers.get('Location'),/invalid_state/);
+});
+test('Android return destination is fixed and requires the app challenge flow',async()=>{
+ const f=await fixture();
+ const ordinary=await f.handler(new Request(BASE+'start',{method:'POST',headers:{Origin:ORIGIN},body:new URLSearchParams({time_zone:'Europe/Moscow',return_to:'/android'})}));
+ assert.equal(ordinary.status,400);
+ for(const destination of ['ru.ipayev.chiefofstaff://auth','/android?next=https://evil.example','/android/other']){
+  const r=await f.handler(new Request(BASE+'bridge-start?challenge='+'a'.repeat(64)+'&time_zone=Europe/Moscow&return_to='+encodeURIComponent(destination)));
+  assert.equal(r.status,400);
+ }
+ assert.equal(f.data.size,0);
+});

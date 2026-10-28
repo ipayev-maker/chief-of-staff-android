@@ -2,637 +2,252 @@ package ru.ipayev.chiefofstaff
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
+import android.media.MediaRecorder
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.view.WindowManager
+import android.widget.FrameLayout
 import android.view.Gravity
 import android.view.View
-import android.view.WindowManager
-import android.widget.Button
 import android.widget.CheckBox
-import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
-import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.Executors
 
+/** Records original audio only. All speech recognition runs on the server. */
 class QuickCaptureActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-
-    private var recognizer: SpeechRecognizer? = null
-    private var sessionActive = false
-    private var parseStarted = false
-    private var inSpeech = false
-    private var heardSpeech = false
-    private var lastSilenceAnchorMs = 0L
-    private var currentPartial = ""
-    private val finalSegments = mutableListOf<String>()
-    private var projects: List<Project> = emptyList()
-    private var participants: List<Participant> = emptyList()
-    private var openTasks: List<TaskSummary> = emptyList()
-    private val draftRows = mutableListOf<QuickDraftRow>()
-    private var sourceText = ""
-
-    private lateinit var card: LinearLayout
-    private lateinit var mic: ImageView
+    private lateinit var root: LinearLayout
     private lateinit var status: TextView
-    private lateinit var countdown: TextView
-    private lateinit var transcript: TextView
-    private lateinit var progress: ProgressBar
-    private lateinit var doneButton: Button
-    private lateinit var cancelButton: Button
-    private lateinit var reviewBox: LinearLayout
-    private lateinit var confirmButton: Button
-    private lateinit var retryButton: Button
-
+    private var recorder: MediaRecorder? = null
+    private var started = 0L
+    private var draft: VoiceDraft? = null
+    private var item: JSONObject? = null
+    private var busy = false
+    private var active = false
+    private var resumeAfterLogin = false
+    private var initialCheck = false
+    private val choices = mutableListOf<Pair<JSONObject, CheckBox>>()
+    private val timer = object : Runnable {
+        override fun run() {
+            if (recorder == null) return
+            val seconds = (SystemClock.elapsedRealtime() - started) / 1000
+            status.text = "Запись · %d:%02d\nНазовите действие, участника, дату и время.".format(seconds / 60, seconds % 60)
+            main.postDelayed(this, 500)
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        configureWindow()
-        setContentView(buildUi())
-        setFinishOnTouchOutside(false)
-        loadContextInBackground()
-        ensurePermissionAndStart()
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(24), dp(22), dp(24)); background = roundedDrawable(Color.WHITE, dp(20).toFloat()) }
+        val sheet = object : ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val maxHeight = minOf(dp(620), (resources.displayMetrics.heightPixels * 0.82).toInt())
+                super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(minOf(View.MeasureSpec.getSize(heightMeasureSpec), maxHeight), View.MeasureSpec.AT_MOST))
+            }
+        }.apply { addView(root); clipToOutline = true; background = roundedDrawable(Color.WHITE, dp(20).toFloat()) }
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(80, 0, 0, 0)); setPadding(dp(10), dp(10), dp(10), dp(10))
+            addView(sheet, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        }
+        setContentView(overlay); applySystemInsets(overlay)
+        draft = VoiceDraft.load(this)
+        base("Голосовое сообщение", "Проверяю вход…")
     }
-
-    override fun onDestroy() {
-        sessionActive = false
-        main.removeCallbacksAndMessages(null)
-        recognizer?.cancel()
-        recognizer?.destroy()
-        recognizer = null
-        io.shutdownNow()
-        super.onDestroy()
+    override fun onResume() {
+        super.onResume(); active = true
+        if (!initialCheck || resumeAfterLogin) { initialCheck = true; resumeAfterLogin = false; authorize() }
     }
-
-    private fun configureWindow() {
-        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-        val attrs = window.attributes
-        attrs.dimAmount = 0.38f
-        attrs.gravity = Gravity.CENTER
-        window.attributes = attrs
+    override fun onPause() {
+        active = false
+        if (recorder != null) { stopRecording(); pending("Запись остановлена и сохранена на телефоне.") }
+        super.onPause()
     }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            val width = (resources.displayMetrics.widthPixels - dp(24)).coerceAtMost(dp(520))
-            window.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
-        }
-    }
-
-    private fun buildUi(): ScrollView {
-        val scroll = ScrollView(this).apply {
-            isFillViewport = false
-            setBackgroundColor(Color.TRANSPARENT)
-        }
-        card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(20), dp(18), dp(20), dp(18))
-            background = roundedDrawable(Color.WHITE, dp(24).toFloat(), Color.rgb(214, 222, 232), dp(1))
-        }
-        scroll.addView(card)
-
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        top.addView(label("Никодим", 19f).apply {
-            setTypeface(typeface, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        top.addView(TextView(this).apply {
-            text = "×"
-            textSize = 28f
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(102, 112, 133))
-            setPadding(dp(10), 0, dp(2), 0)
-            setOnClickListener { finish() }
-        })
-        card.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-
-        mic = ImageView(this).apply {
-            setImageResource(R.drawable.ic_nikodim_mic)
-            setPadding(dp(22), dp(22), dp(22), dp(22))
-            background = roundedDrawable(Color.rgb(55, 104, 232), dp(48).toFloat())
-            contentDescription = "Микрофон"
-        }
-        card.addView(mic, LinearLayout.LayoutParams(dp(96), dp(96)).apply { topMargin = dp(14) })
-
-        status = label("Запускаю микрофон…", 18f).apply {
-            gravity = Gravity.CENTER
-            setTypeface(typeface, Typeface.BOLD)
-        }
-        card.addView(status, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
-
-        countdown = label("После паузы жду 5 секунд", 13f, muted = true).apply { gravity = Gravity.CENTER }
-        card.addView(countdown, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
-
-        transcript = label("", 16f).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            visibility = View.GONE
-            background = roundedDrawable(Color.rgb(247, 249, 252), dp(14).toFloat())
-        }
-        card.addView(transcript, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
-
-        progress = ProgressBar(this).apply { visibility = View.GONE; isIndeterminate = true }
-        card.addView(progress, LinearLayout.LayoutParams(dp(34), dp(34)).apply { topMargin = dp(10) })
-
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        cancelButton = secondaryButton("Отмена").apply { setOnClickListener { finish() } }
-        doneButton = primaryButton("Готово").apply {
-            isEnabled = false
-            setOnClickListener { finishListeningAndParse(force = true) }
-        }
-        actions.addView(cancelButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
-        actions.addView(doneButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
-        card.addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
-
-        reviewBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-        card.addView(reviewBox, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
-
-        retryButton = secondaryButton("Передиктовать").apply {
-            visibility = View.GONE
-            setOnClickListener { beginSession() }
-        }
-        confirmButton = primaryButton("Создать").apply {
-            visibility = View.GONE
-            setOnClickListener { createSelectedDrafts() }
-        }
-        val confirmActions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        confirmActions.addView(retryButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
-        confirmActions.addView(confirmButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
-        card.addView(confirmActions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
-
-        return scroll
-    }
-
-    private fun ensurePermissionAndStart() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            beginSession()
-        } else {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_AUDIO)
+    override fun onDestroy() { main.removeCallbacksAndMessages(null); recorder?.release(); recorder = null; io.shutdown(); super.onDestroy() }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 10) {
+            if (resultCode == RESULT_OK) resumeAfterLogin = true
+            else { base("Вход не завершён", "Для отправки записи нужен аккаунт владельца и PIN."); button("Войти") { authorize() }; button("Закрыть", false) { finish() } }
         }
     }
-
+    private fun base(title: String, text: String) {
+        root.removeAllViews(); choices.clear(); root.addView(label(title, 24f))
+        status = label(text, 16f, muted = true); root.addView(status); status.margin(top = dp(14), bottom = dp(20))
+    }
+    private fun button(text: String, primary: Boolean = true, action: () -> Unit) {
+        root.addView((if (primary) primaryButton(text) else secondaryButton(text)).apply { setOnClickListener { if (!busy) action() } })
+        root.getChildAt(root.childCount - 1).margin(top = dp(10))
+    }
+    private fun authorize() {
+        work({ ApiClient.requireUnlocked() }) {
+            if (!active) { resumeAfterLogin = true; return@work }
+            if (draft == null) startRecording() else restore()
+        }
+    }
+    @Suppress("DEPRECATION")
+    private fun startRecording() {
+        if (!active || recorder != null) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 20); return }
+        val next = VoiceDraft.create(this); draft = next; item = null
+        val recording = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else MediaRecorder()
+        try {
+            recording.setAudioSource(MediaRecorder.AudioSource.MIC)
+            recording.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            recording.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            recording.setAudioChannels(1); recording.setAudioSamplingRate(16000); recording.setAudioEncodingBitRate(32000)
+            recording.setMaxDuration(600_000); recording.setMaxFileSize(3L * 1024 * 1024)
+            recording.setOutputFile(next.file(this).absolutePath)
+            recording.setOnInfoListener { _, what, _ -> if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED || what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) { stopRecording(); pending("Достигнут предел записи. Можно отправить сообщение.") } }
+            recording.setOnErrorListener { _, _, _ -> stopRecording(); pending("Запись прервалась. Проверьте сохранённый фрагмент.") }
+            recording.prepare(); recording.start(); recorder = recording; started = SystemClock.elapsedRealtime()
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            base("Говорите", "Запись начинается…"); button("Готово — разобрать") { stopRecording(); upload() }
+            button("Отменить запись", false) { discard() }
+            main.post(timer)
+        } catch (_: Exception) {
+            recording.release(); recorder = null; next.clear(this); draft = null
+            base("Микрофон недоступен", "Закройте другие приложения, использующие микрофон, и повторите.")
+            button("Начать запись") { startRecording() }; button("Закрыть", false) { finish() }
+        }
+    }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_AUDIO) {
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) beginSession()
-            else showFatal("Нужен доступ к микрофону")
+        if (requestCode == 20 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startRecording()
+        else { base("Нужен доступ к микрофону", "Разрешите запись звука в настройках приложения."); button("Настройки") { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }; button("Начать запись", false) { startRecording() } }
+    }
+    private fun stopRecording() {
+        val recording = recorder ?: return; recorder = null
+        main.removeCallbacks(timer); window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val seconds = ((SystemClock.elapsedRealtime() - started + 999) / 1000).toInt().coerceIn(1, 600)
+        val valid = runCatching { recording.stop() }.isSuccess; recording.release()
+        if (valid) { draft = draft?.copy(seconds = seconds); draft?.save(this) }
+        else { draft?.clear(this); draft = null }
+    }
+    private fun pending(message: String = "Запись сохранена на телефоне. Можно отправить её на разбор.") {
+        val current = draft
+        if (current == null || !current.file(this).exists() || current.seconds == 0) {
+            base("Запись не завершена", "Этот фрагмент не удалось сохранить. Запишите сообщение ещё раз.")
+            button("Записать заново") { draft?.clear(this); draft = null; startRecording() }; button("Закрыть", false) { finish() }; return
+        }
+        base("Голосовое сообщение", message)
+        button(if (current.applyBody != null) "Проверить сохранение" else "Отправить на разбор") { if (current.applyBody != null) restore() else upload() }
+        button("Удалить запись с телефона", false) { discard() }
+        button("Закрыть", false) { finish() }
+    }
+    private fun restore() {
+        val current = draft ?: return
+        base("Сохранённое сообщение", "Проверяю состояние на сервере…")
+        work({ try { ApiClient.inbox(current.id) } catch (e: ApiClient.RequestError) { if (e.status == 404) null else throw e } }) { loaded ->
+            if (loaded == null) pending()
+            else if (current.applyBody != null && loaded.optString("status") != "applied") {
+                item = loaded
+                base("Подтверждение не получено", "Запись сохранена. Можно безопасно повторить то же подтверждение.")
+                button("Повторить подтверждение") { sendApply(JSONObject(current.applyBody)) }
+                button("Обновить карточку", false) { draft = current.copy(applyBody = null); draft?.save(this); showItem(loaded) }
+            } else showItem(loaded)
         }
     }
-
-    private fun beginSession() {
-        sessionActive = false
-        parseStarted = false
-        main.removeCallbacks(silenceWatchdog)
-        recognizer?.cancel()
-        recognizer?.destroy()
-        recognizer = null
-
-        finalSegments.clear()
-        currentPartial = ""
-        sourceText = ""
-        heardSpeech = false
-        inSpeech = false
-        lastSilenceAnchorMs = SystemClock.elapsedRealtime()
-        draftRows.clear()
-
-        reviewBox.removeAllViews()
-        reviewBox.visibility = View.GONE
-        retryButton.visibility = View.GONE
-        confirmButton.visibility = View.GONE
-        doneButton.visibility = View.VISIBLE
-        cancelButton.visibility = View.VISIBLE
-        doneButton.isEnabled = false
-        progress.visibility = View.GONE
-        transcript.text = ""
-        transcript.visibility = View.GONE
-        mic.visibility = View.VISIBLE
-        status.text = "Слушаю…"
-        status.setTextColor(Color.rgb(23, 32, 51))
-        countdown.text = "После паузы жду 5 секунд"
-        countdown.visibility = View.VISIBLE
-
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            showFatal("На устройстве нет сервиса распознавания речи")
-            return
-        }
-
-        sessionActive = true
-        createRecognizer()
-        startRecognizerSegment()
-        main.post(silenceWatchdog)
+    private fun upload() {
+        val current = draft ?: run { pending(); return }
+        if (current.seconds == 0) { pending(); return }
+        base("Разбираю сообщение", "Отправляю запись. Затем распознаю речь и выделю задачи и встречи.")
+        work({ ApiClient.uploadVoice(current, current.file(this)) }) { showItem(it) }
     }
-
-    private fun createRecognizer() {
-        recognizer?.destroy()
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    if (!sessionActive) return
-                    status.text = if (heardSpeech) "Продолжаю слушать…" else "Слушаю…"
-                }
-
-                override fun onBeginningOfSpeech() {
-                    if (!sessionActive) return
-                    inSpeech = true
-                    heardSpeech = true
-                    doneButton.isEnabled = true
-                    status.text = "Говорите…"
-                    countdown.text = "После паузы — ещё 5 секунд"
-                }
-
-                override fun onRmsChanged(rmsdB: Float) = Unit
-                override fun onBufferReceived(buffer: ByteArray?) = Unit
-
-                override fun onEndOfSpeech() {
-                    if (!sessionActive) return
-                    inSpeech = false
-                    lastSilenceAnchorMs = SystemClock.elapsedRealtime()
-                    status.text = "Пауза — я ещё слушаю"
-                }
-
-                override fun onError(error: Int) {
-                    if (!sessionActive || parseStarted) return
-                    inSpeech = false
-                    when (error) {
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> showFatal("Нет доступа к микрофону")
-                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> showFatal("Ошибка сети при распознавании")
-                        SpeechRecognizer.ERROR_SERVER -> restartRecognizerSoon(350)
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> restartRecognizerSoon(450)
-                        SpeechRecognizer.ERROR_CLIENT -> restartRecognizerSoon(250, recreate = true)
-                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> restartRecognizerSoon(120)
-                        else -> restartRecognizerSoon(180)
-                    }
-                }
-
-                override fun onResults(results: Bundle?) {
-                    if (!sessionActive || parseStarted) return
-                    val best = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
-                    if (best.isNotBlank()) {
-                        appendFinal(best)
-                        heardSpeech = true
-                        doneButton.isEnabled = true
-                        lastSilenceAnchorMs = SystemClock.elapsedRealtime()
-                    }
-                    currentPartial = ""
-                    inSpeech = false
-                    renderTranscript()
-                    status.text = "Пауза — я ещё слушаю"
-                    restartRecognizerSoon(120)
-                }
-
-                override fun onPartialResults(partialResults: Bundle?) {
-                    if (!sessionActive || parseStarted) return
-                    val part = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
-                    if (part.isNotBlank()) {
-                        currentPartial = part
-                        heardSpeech = true
-                        inSpeech = true
-                        doneButton.isEnabled = true
-                        renderTranscript()
-                    }
-                }
-
-                override fun onEvent(eventType: Int, params: Bundle?) = Unit
-            })
-        }
-    }
-
-    private fun startRecognizerSegment() {
-        if (!sessionActive || parseStarted || isFinishing) return
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ru-RU")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_MS)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, SILENCE_MS)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
-        }
-        runCatching { recognizer?.startListening(intent) }
-            .onFailure { restartRecognizerSoon(300, recreate = true) }
-    }
-
-    private fun restartRecognizerSoon(delayMs: Long, recreate: Boolean = false) {
-        if (!sessionActive || parseStarted) return
-        main.postDelayed({
-            if (!sessionActive || parseStarted || isFinishing) return@postDelayed
-            if (recreate) createRecognizer()
-            startRecognizerSegment()
-        }, delayMs)
-    }
-
-    private val silenceWatchdog = object : Runnable {
-        override fun run() {
-            if (!sessionActive || parseStarted || isFinishing) return
-            val now = SystemClock.elapsedRealtime()
-            if (inSpeech) {
-                countdown.text = "Слушаю речь…"
-            } else {
-                val elapsed = now - lastSilenceAnchorMs
-                val remaining = (SILENCE_MS - elapsed).coerceAtLeast(0L)
-                val sec = remaining / 1000.0
-                countdown.text = if (heardSpeech) {
-                    String.format(Locale.US, "Пауза: %.1f сек до отправки", sec)
-                } else {
-                    String.format(Locale.US, "Жду речь ещё %.1f сек", sec)
-                }
-                if (elapsed >= SILENCE_MS) {
-                    if (heardSpeech && composedText().isNotBlank()) finishListeningAndParse(force = false)
-                    else showNoSpeech()
-                    return
-                }
+    private fun showItem(value: JSONObject) {
+        item = value
+        when (value.optString("status")) {
+            "applied" -> {
+                draft?.clear(this); draft = null
+                base("Готово", "Сообщение обработано. Подтверждённые действия сохранены в дашборде.")
+                button("Закрыть") { finish() }; button("Ещё сообщение", false) { startRecording() }; return
             }
-            main.postDelayed(this, WATCHDOG_TICK_MS)
+            "processing" -> {
+                base("Сообщение обрабатывается", "Сервер ещё разбирает запись. Повторная отправка не создаст копию.")
+                button("Обновить") { restore() }; button("Закрыть", false) { finish() }; return
+            }
+            "captured", "error" -> {
+                pending(if (value.optString("error_code").startsWith("voice_")) "Запись сохранена, но распознавание не завершилось. Повторите отправку позже." else "Запись сохранена, но разбор не завершился. Можно повторить попытку.")
+                button("Открыть карточку", false) { openCard() }; return
+            }
         }
-    }
-
-    private fun appendFinal(text: String) {
-        val normalized = normalize(text)
-        if (normalized.isBlank()) return
-        val duplicate = finalSegments.any { normalize(it) == normalized }
-        if (!duplicate) finalSegments += text.trim()
-    }
-
-    private fun composedText(): String {
-        val pieces = finalSegments.toMutableList()
-        val part = currentPartial.trim()
-        if (part.isNotBlank() && pieces.none { normalize(it) == normalize(part) }) pieces += part
-        return pieces.joinToString(" ").replace(Regex("\\s+"), " ").trim()
-    }
-
-    private fun renderTranscript() {
-        val text = composedText()
-        transcript.text = text
-        transcript.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
-    }
-
-    private fun finishListeningAndParse(force: Boolean) {
-        if (parseStarted) return
-        val text = composedText()
-        if (text.isBlank()) {
-            if (force) showNoSpeech()
-            return
+        val proposal = value.optJSONObject("proposal") ?: JSONObject()
+        val transcript = value.optString("transcript").takeIf { it.isNotBlank() && it != "null" } ?: value.optString("source_text")
+        base("Проверьте результат", proposal.optString("summary"))
+        val questions = proposal.optJSONArray("questions") ?: JSONArray()
+        for (i in 0 until questions.length()) root.addView(label(questions.getString(i), 16f).apply { margin(bottom = dp(8)) })
+        val changes = proposal.optJSONArray("changes") ?: JSONArray()
+        for (i in 0 until changes.length()) {
+            val change = changes.getJSONObject(i)
+            val kind = when (change.optString("kind")) { "meeting_create" -> "Встреча"; "task_update" -> "Изменить задачу"; "task_create" -> "Задача"; else -> "Изменение проекта" }
+            val check = CheckBox(this).apply { text = "$kind: ${change.optString("text")}"; textSize = 17f; isChecked = change.optBoolean("selected", true); setPadding(0, dp(10), 0, dp(6)) }
+            root.addView(check); choices.add(change to check)
+            val metadata = buildList {
+                change.nonempty("project_title")?.let { add("Проект: $it") }
+                (change.nonempty("participant_name") ?: change.optJSONObject("participant_suggestion")?.nonempty("name"))?.let { add("Участник: $it") }
+                change.nonempty("meeting_date")?.let { add("Встреча: $it ${change.nonempty("meeting_time") ?: "—"}") }
+                change.nonempty("deadline")?.let { add("Срок: $it ${change.nonempty("deadline_time") ?: ""}") }
+                change.nonempty("planned_on")?.let { add("Сделать: $it ${change.nonempty("planned_time") ?: ""}") }
+            }
+            if (metadata.isNotEmpty()) root.addView(label(metadata.joinToString("\n"), 15f, muted = true))
         }
-        parseStarted = true
-        sessionActive = false
-        main.removeCallbacks(silenceWatchdog)
-        recognizer?.cancel()
-        recognizer?.destroy()
-        recognizer = null
-        sourceText = text
-
-        mic.visibility = View.GONE
-        doneButton.visibility = View.GONE
-        cancelButton.visibility = View.GONE
-        countdown.text = "Никодим разбирает сказанное…"
-        status.text = "Обрабатываю"
-        progress.visibility = View.VISIBLE
-
+        button(if (changes.length() > 0) "Сохранить выбранное" else "Оставить заметкой") { confirm() }
+        button("Исправить в карточке", false) { openCard() }
+        root.addView(sectionTitle("Расшифровка").apply { margin(top = dp(24), bottom = dp(8)) })
+        root.addView(label(transcript, 16f).apply { setTextIsSelectable(true) })
+        button("Закрыть и вернуться позже", false) { finish() }
+    }
+    private fun confirm() {
+        val current = item ?: return
+        val changes = JSONArray()
+        for ((change, check) in choices) changes.put(JSONObject(change.toString()).put("selected", check.isChecked))
+        val body = JSONObject().put("revision", current.getInt("revision")).put("request_id", UUID.randomUUID().toString())
+            .put("proposal", JSONObject().put("version", 1).put("changes", changes))
+        draft = draft?.copy(applyBody = body.toString()); draft?.save(this)
+        sendApply(body)
+    }
+    private fun sendApply(body: JSONObject) {
+        val id = draft?.id ?: return
+        base("Сохраняю", "Подтверждаю выбранные задачи и встречи…")
+        work({ ApiClient.apply(id, body) }) { showItem(it) }
+    }
+    private fun openCard() { val id = draft?.id ?: return; startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ApiClient.BASE_URL + "/#/inbox/$id"))) }
+    private fun discard() {
+        AlertDialog.Builder(this).setTitle("Удалить запись с телефона?").setMessage("Если сообщение уже отправлено, его копия останется в дашборде.")
+            .setPositiveButton("Удалить") { _, _ -> stopRecording(); draft?.clear(this); draft = null; item = null; finish() }.setNegativeButton("Отмена", null).show()
+    }
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (recorder != null) { stopRecording(); pending() } else super.onBackPressed()
+    }
+    private fun JSONObject.nonempty(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
+    private fun <T> work(job: () -> T, success: (T) -> Unit) {
+        if (busy) return; busy = true
         io.execute {
-            if (projects.isEmpty()) runCatching { ApiClient.loadProjects() }.onSuccess { projects = it }
-            runCatching { ApiClient.parseVoice(text, buildCaptureContext()) }
-                .onSuccess { result -> runOnUiThread { showReview(result) } }
-                .onFailure { error -> runOnUiThread { showParseError(error.message ?: "Ошибка") } }
-        }
-    }
-
-    private fun showReview(result: ParseResult) {
-        progress.visibility = View.GONE
-        countdown.visibility = View.GONE
-        reviewBox.removeAllViews()
-        draftRows.clear()
-
-        if (result.drafts.isEmpty()) {
-            status.text = "Не нашёл явной задачи"
-            retryButton.visibility = View.VISIBLE
-            confirmButton.visibility = View.GONE
-            reviewBox.visibility = View.GONE
-            return
-        }
-
-        status.text = if (result.drafts.size == 1) "Никодим понял так" else "Никодим нашёл ${result.drafts.size} задачи"
-        reviewBox.visibility = View.VISIBLE
-        result.drafts.forEachIndexed { index, draft ->
-            val row = buildDraftRow(index, draft)
-            draftRows += row
-            reviewBox.addView(row.container)
-        }
-        retryButton.visibility = View.VISIBLE
-        confirmButton.visibility = View.VISIBLE
-        confirmButton.text = if (result.drafts.size == 1) "Создать задачу" else "Создать ${result.drafts.size} задачи"
-    }
-
-    private fun buildDraftRow(index: Int, draft: Draft): QuickDraftRow {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = roundedDrawable(Color.rgb(247, 249, 252), dp(13).toFloat())
-        }
-        if (index > 0) box.margin(top = dp(7))
-
-        val check = CheckBox(this).apply {
-            isChecked = true
-            text = draft.description
-            textSize = 15f
-            setTextColor(Color.rgb(23, 32, 51))
-            setTypeface(typeface, Typeface.BOLD)
-        }
-        box.addView(check)
-
-        val meta = mutableListOf<String>()
-        draft.projectTitle?.takeIf { it.isNotBlank() }?.let { meta += it }
-        draft.deadline?.takeIf { it.isNotBlank() }?.let { meta += "срок $it" }
-        draft.deadlineText?.takeIf { it.isNotBlank() && it != draft.deadline }?.let { meta += it }
-        draft.who?.takeIf { it.isNotBlank() }?.let { meta += "участник: $it" }
-        draft.relations.forEach { rel ->
-            val target = rel.targetTaskId?.let { id -> openTasks.firstOrNull { it.id == id } } ?: rel.targetTaskDescription?.let { matchTask(it) }
-            if (target != null) meta += "связь: ${rel.linkType} → ${target.description.take(50)}"
-        }
-        if (meta.isNotEmpty()) {
-            box.addView(label(meta.joinToString(" · "), 12f, muted = true).apply { setPadding(dp(34), 0, 0, 0) })
-        }
-        return QuickDraftRow(box, check, draft)
-    }
-
-    private fun createSelectedDrafts() {
-        val selected = draftRows.filter { it.check.isChecked }
-        if (selected.isEmpty()) {
-            status.text = "Выберите хотя бы одну задачу"
-            return
-        }
-        confirmButton.isEnabled = false
-        retryButton.isEnabled = false
-        progress.visibility = View.VISIBLE
-        status.text = "Создаю…"
-
-        io.execute {
-            runCatching {
-                if (projects.isEmpty()) projects = ApiClient.loadProjects()
-                if (participants.isEmpty()) participants = ApiClient.loadParticipants()
-                selected.forEach { row ->
-                    val projectId = matchProject(row.draft.projectTitle)?.id
-                    val participantId = matchParticipant(row.draft.who)?.id
-                    val newId = ApiClient.createCommitment(row.draft, projectId, participantId, sourceText)
-                    row.draft.relations.forEach { rel ->
-                        val target = rel.targetTaskId?.let { id -> openTasks.firstOrNull { it.id == id } }
-                            ?: rel.targetTaskDescription?.let { desc -> matchTask(desc) }
-                        if (target != null) ApiClient.createLink(projectId, newId, target.id, rel.linkType)
+            val result = runCatching(job)
+            runOnUiThread {
+                busy = false; if (isFinishing || isDestroyed) return@runOnUiThread
+                result.onSuccess(success).onFailure { error ->
+                    if (error is ApiClient.AccessRequired) { if (active) startActivityForResult(Intent(this, LoginActivity::class.java), 10) else resumeAfterLogin = true }
+                    else {
+                        pending("${error.message ?: "Нет связи с сервером."}\nЗапись остаётся на телефоне.")
+                        if (draft == null) button("Повторить проверку входа", false) { authorize() }
                     }
-                }
-            }.onSuccess {
-                runOnUiThread {
-                    progress.visibility = View.GONE
-                    reviewBox.visibility = View.GONE
-                    retryButton.visibility = View.GONE
-                    confirmButton.visibility = View.GONE
-                    status.setTextColor(Color.rgb(22, 128, 91))
-                    status.text = if (selected.size == 1) "Задача создана" else "Создано задач: ${selected.size}"
-                    countdown.visibility = View.VISIBLE
-                    countdown.text = "Готово"
-                    main.postDelayed({ if (!isFinishing) finish() }, 900)
-                }
-            }.onFailure { error ->
-                runOnUiThread {
-                    progress.visibility = View.GONE
-                    confirmButton.isEnabled = true
-                    retryButton.isEnabled = true
-                    status.setTextColor(Color.rgb(184, 58, 50))
-                    status.text = "Не удалось сохранить"
-                    countdown.visibility = View.VISIBLE
-                    countdown.text = error.message ?: "Ошибка сети"
                 }
             }
         }
-    }
-
-    private fun matchParticipant(name: String?): Participant? {
-        val needle = normalize(name ?: return null)
-        if (needle.isBlank()) return null
-        return participants.firstOrNull { normalize(it.name) == needle }
-            ?: participants.firstOrNull { normalize(it.name).contains(needle) || needle.contains(normalize(it.name)) }
-    }
-
-    private fun matchTask(description: String?): TaskSummary? {
-        val needle = normalize(description ?: return null)
-        if (needle.isBlank()) return null
-        return openTasks.firstOrNull { normalize(it.description) == needle }
-            ?: openTasks.maxByOrNull { overlapScore(needle, normalize(it.description)) }?.takeIf { overlapScore(needle, normalize(it.description)) >= 0.35 }
-    }
-
-    private fun overlapScore(a: String, b: String): Double {
-        val aa=a.split(" ").filter { it.length>2 }.toSet()
-        val bb=b.split(" ").filter { it.length>2 }.toSet()
-        if (aa.isEmpty()) return 0.0
-        return aa.intersect(bb).size.toDouble()/aa.size
-    }
-
-    private fun matchProject(title: String?): Project? {
-        val needle = normalize(title ?: return null)
-        if (needle.isBlank()) return null
-        return projects.firstOrNull { normalize(it.title) == needle }
-            ?: projects.firstOrNull { normalize(it.title).contains(needle) || needle.contains(normalize(it.title)) }
-    }
-
-    private fun loadContextInBackground() {
-        io.execute {
-            runCatching { ApiClient.loadProjects() }.onSuccess { projects = it }
-            runCatching { ApiClient.loadParticipants() }.onSuccess { participants = it }
-            runCatching { ApiClient.loadOpenTasks() }.onSuccess { openTasks = it }
-        }
-    }
-
-    private fun buildCaptureContext(): org.json.JSONObject {
-        val root = org.json.JSONObject()
-        val ps = org.json.JSONArray()
-        projects.forEach { ps.put(org.json.JSONObject().put("id", it.id).put("title", it.title).put("area_key", it.areaKey ?: org.json.JSONObject.NULL)) }
-        val people = org.json.JSONArray()
-        participants.forEach { people.put(org.json.JSONObject().put("id", it.id).put("name", it.name)) }
-        val tasks = org.json.JSONArray()
-        openTasks.forEach { tasks.put(org.json.JSONObject().put("id", it.id).put("description", it.description).put("project_id", it.projectId ?: org.json.JSONObject.NULL)) }
-        return root.put("projects", ps).put("participants", people).put("tasks", tasks)
-    }
-
-    private fun showNoSpeech() {
-        sessionActive = false
-        main.removeCallbacks(silenceWatchdog)
-        recognizer?.cancel()
-        status.text = "Не услышал речь"
-        countdown.text = "Нажмите «Повторить»"
-        progress.visibility = View.GONE
-        doneButton.visibility = View.GONE
-        cancelButton.visibility = View.GONE
-        retryButton.visibility = View.VISIBLE
-        retryButton.text = "Повторить"
-        confirmButton.visibility = View.GONE
-    }
-
-    private fun showParseError(message: String) {
-        progress.visibility = View.GONE
-        status.setTextColor(Color.rgb(184, 58, 50))
-        status.text = "Не удалось разобрать"
-        countdown.visibility = View.VISIBLE
-        countdown.text = message
-        retryButton.visibility = View.VISIBLE
-        confirmButton.visibility = View.GONE
-    }
-
-    private fun showFatal(message: String) {
-        sessionActive = false
-        parseStarted = false
-        main.removeCallbacks(silenceWatchdog)
-        recognizer?.cancel()
-        progress.visibility = View.GONE
-        status.setTextColor(Color.rgb(184, 58, 50))
-        status.text = message
-        countdown.text = "Закройте окно и попробуйте снова"
-        doneButton.visibility = View.GONE
-        retryButton.visibility = View.GONE
-        confirmButton.visibility = View.GONE
-    }
-
-    private fun normalize(value: String): String = value
-        .lowercase(Locale.ROOT)
-        .replace('ё', 'е')
-        .replace(Regex("[^a-zа-я0-9]+"), " ")
-        .trim()
-
-    private data class QuickDraftRow(
-        val container: LinearLayout,
-        val check: CheckBox,
-        val draft: Draft
-    )
-
-    companion object {
-        private const val REQUEST_AUDIO = 9201
-        private const val SILENCE_MS = 5_000L
-        private const val WATCHDOG_TICK_MS = 200L
     }
 }

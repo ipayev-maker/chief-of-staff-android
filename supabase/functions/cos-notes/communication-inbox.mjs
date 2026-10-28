@@ -239,7 +239,7 @@ export function createInboxModel({openRouterKey,telegramModel=TELEGRAM_MODEL,mai
   // Telegram and Gmail have independent, pinned free models. Explicit operator
   // overrides permit rollback; there is no automatic fallback to a paid model.
   for(const selected of [telegramModel,mailModel])if(typeof selected!=='string'||!(/^[a-z0-9_.-]+\/[a-z0-9_.:-]+:free$/i.test(selected)||selected===MODEL))throw Error('invalid_inbox_model');
-  const modelFor=({channel,mail}={})=>mail?mailModel:channel==='telegram'?telegramModel:MODEL;
+  const modelFor=({channel,mail}={})=>mail?mailModel:['telegram','android'].includes(channel)?telegramModel:MODEL;
   async function generate({text:message,context,refDate,timeZone,mail,channel}){
     const selectedModel=modelFor({channel,mail}),free=selectedModel.endsWith(':free');
     if(!openRouterKey)fail(503,'analysis_unavailable');
@@ -307,14 +307,15 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     try{
       if(item.source_meta?.type==='voice'||item.source_meta?.voice){
         try{
-        if(!voice)fail(503,'voice_unavailable');
-        if(!item.source_meta.audio_path){const saved=await voice.save({communicationId:id,voice:item.source_meta.voice});item=await update(item,{attempt_id:attempt,source_meta:{audio_path:saved.path,audio_bucket:saved.bucket,audio_mime_type:saved.mime_type,audio_size_bytes:saved.size_bytes,audio_duration_seconds:saved.duration_seconds}});}
+        const adapter=voice?.forItem?await voice.forItem(item):voice;
+        if(!adapter)fail(503,'voice_unavailable');
+        if(!item.source_meta.audio_path){const saved=await adapter.save({communicationId:id,voice:item.source_meta.voice});item=await update(item,{attempt_id:attempt,source_meta:{audio_path:saved.path,audio_bucket:saved.bucket,audio_mime_type:saved.mime_type,audio_size_bytes:saved.size_bytes,audio_duration_seconds:saved.duration_seconds}});}
         // Re-analysis upgrades legacy recognition from the saved original audio.
         // Explicit owner corrections take precedence; prior transcripts remain
         // in the immutable update receipts, never rewritten as owner speech.
-        if(!item.transcript||voice.model&&analysis.transcription_model!==voice.model&&!corrections.length){
-          const transcript=await voice.transcribe({communicationId:id});if(!text(transcript,64000,false))fail(503,'voice_no_speech');
-          if(voice.model)analysis.transcription_model=voice.model;
+        if(!item.transcript||adapter.model&&analysis.transcription_model!==adapter.model&&!corrections.length){
+          const transcript=await adapter.transcribe({communicationId:id});if(!text(transcript,64000,false))fail(503,'voice_no_speech');
+          if(adapter.model)analysis.transcription_model=adapter.model;
           item=await update(item,{attempt_id:attempt,transcript,proposal:{...item.proposal,analysis}});
         }
         }catch(error){if(!corrections.length||error?.status===409)throw error;voiceFailure=/^voice_[a-z_]+$/.test(error?.safeCode||error?.code||'')?error.safeCode||error.code:'voice_unavailable';item=await update(item,{attempt_id:attempt,source_meta:{audio_error:voiceFailure}});}
@@ -456,7 +457,7 @@ export function createCommunicationInbox({store,model,voice,now=()=>new Date(),u
     await get(id);
     try{const result=await store.rpc('cos_inbox_cancel_created',{p_id:id,p_change_id:data.change_id});return {...result,item:safeItem(result.item)}}catch(error){throw mapped(error)}
   }
-  async function audio(id){const {item}=await get(id);if(!item.source_meta?.audio_path||!voice?.read)fail(404,'audio_not_found');try{return await voice.read({communicationId:id})}catch{fail(503,'voice_unavailable')}}
+  async function audio(id){const {item}=await get(id),adapter=voice?.forItem?await voice.forItem(item):voice;if(!item.source_meta?.audio_path||!adapter?.read)fail(404,'audio_not_found');try{return await adapter.read({communicationId:id})}catch{fail(503,'voice_unavailable')}}
   async function recover(id){
     let {item}=await get(id);const analysis=item.proposal?.analysis;
     if(item.source_meta?.type!=='gmail'||item.source_meta.superseded||item.status!=='error'||item.error_code!=='invalid_analysis'||!analysis?.result)return null;
