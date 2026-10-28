@@ -5,7 +5,7 @@ import {mailAnalysisWindow} from '../cos-gmail/mail.mjs';
 import {dateEvidence, exactDay, validDay} from '../telegram-webhook/date-evidence.mjs';
 import {emptyProjectBrief, validateProjectBriefDocument} from './project-brief.mjs';
 import {recoverAppointment,sourceAppointment} from './communication-schedule.mjs';
-import {participantFor,recoverPreparationTask,recoverDirectTask} from './communication-intent.mjs';
+import {participantFor,recoverPreparationTask,recoverDirectTask,recoverTaskWorkDate} from './communication-intent.mjs';
 import {projectFor} from './communication-entities.mjs';
 import {MAIL_INSTRUCTIONS,mailEvidence,restoreMailEvidence} from './communication-mail.mjs';
 import {clockEvidence} from '../telegram-webhook/time-evidence.mjs';
@@ -110,7 +110,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
   }
   const full=sourceText(item,corrections),questions=Array.isArray(raw.questions)?raw.questions.filter(q=>text(q,500,false)).slice(0,20):[];
   const changes=[];const usedTasks=new Set();let invalidMailChanges=0;
-  for(const value of raw.changes){
+  for(let value of raw.changes){
     const beforeQuestions=questions.length;try{
     if(!object(value)||!KINDS.includes(value.kind)||!text(value.text,2000,false)||!sourceContains(full,value.evidence))fail(503,'invalid_analysis');
     let mail=null;
@@ -131,6 +131,7 @@ export function normalizeInboxProposal(raw,{item,context,corrections=[],timeZone
     const correction=[...corrections].reverse().find(c=>c.text.includes(value.evidence));
     const forwardedUnknown=!correction&&!!item.source_meta?.forwarded&&!item.source_meta?.original_date;
     const reference=correction?.created_at||mail?.date||sourceInstant(item);
+    if(!mail)value=recoverTaskWorkDate(value,{full,refDate:reference,timeZone});
     const appointment=old?null:sourceAppointment(value,{full,refDate:reference,timeZone,forwardedUnknown});
     const meetingKind=value.kind==='meeting_create'||!!appointment;
     const dates=meetingKind?{deadline:null,deadline_time:null}:quotedDate({...value,...((mail?.proposed&&value.deadline_agreement!=='confirmed')||value.deadline_agreement==='proposed'||mail?.expanded?{date_text:null,date_status:'none'}:{}),forwardedUnknown},full,reference,timeZone,questions);

@@ -1,8 +1,10 @@
-# Android 0.4.1: raw voice and owner access
+# Android 0.4.2: raw voice and owner access
 
 The Android app records mono AAC in an M4A container (16 kHz, 32 kbps), up to ten minutes / 3 MiB. It does not use Android speech recognition. The owner explicitly stops and sends the recording. Backgrounding the activity stops recording and retains the private local draft.
 
-The compact widget occupies one launcher cell. A stretched widget shows a caption; both launch the same small capture sheet. Existing launcher shortcuts continue to work.
+The compact widget occupies one launcher cell. A stretched widget shows a caption; both launch the same bottom capture sheet in a separate task affinity, so opening the widget does not bring the dashboard activity in front of the launcher. The translucent sheet slides up over the current screen and slides down on close. Its microphone gently pulses only while recording and respects disabled system animations. Closing with the cross, outside tap or Back stops recording and retains the private draft. Existing launcher shortcuts continue to work.
+
+If the owner session or PIN has expired, the sheet shows a **Разблокировать** action; it does not automatically navigate to the full login screen. The same owner and PIN checks still gate recording and upload.
 
 ## Authentication
 
@@ -16,13 +18,15 @@ Native confirmation uses the shared communication inbox API, including meeting c
 
 The server accepts UTC recording timestamps with zero to nine fractional digits, including Android `Instant.toString()` nanoseconds. The original string is forwarded unchanged to the capture RPC, preserving retry identity for drafts already saved by version 0.4.0. Format, future-time, audio-size, duration and UUID checks still apply. This server fix requires deploying `cos-notes`; a Vercel deployment alone does not update the function.
 
+For a direct instruction such as “В пятницу надо уточнить готовность образцов”, the server recovers the work date from the literal action quote even if the model omits or rewrites the date field. It resolves the day relative to the original recording time in the configured timezone, keeps an unstated clock time empty, and still rejects ambiguous or cross-clause date inference. Requested result deadlines remain separate from work dates.
+
 The app retains the local recording until successful confirmation or explicit removal. Server-side originals remain available in the inbox. Corrections and unresolved links open the existing inbox card; the browser uses its own protected session.
 
 ## Deployment order and validation
 
 1. Apply `20261028195156_android_voice_and_login.sql`.
 2. Deploy `cos-google-calendar` and `cos-notes` with their existing custom owner/PIN guards (`verify_jwt=false`).
-3. Build and lint Android 0.4.1 (versionCode 5); sign the release APK with the same privately retained release key as 0.4.0 so it installs as an update.
+3. Build and lint Android 0.4.2 (versionCode 6); sign the release APK with the same privately retained release key as 0.4.0 so it installs as an update.
 4. Install and sign in on the owner's phone. Device login, microphone routing and launcher rendering need a real-device check; automated tests do not establish those outcomes.
 
 Contract coverage includes owner/PIN/origin denial, bounded audio, immutable retry sequencing, Groq-only transcription, free-model routing, meeting confirmation and single-use verifier-bound login. Android CI builds debug and unsigned release APKs and runs lint. Release signing material must never be committed or included in public CI artifacts.
