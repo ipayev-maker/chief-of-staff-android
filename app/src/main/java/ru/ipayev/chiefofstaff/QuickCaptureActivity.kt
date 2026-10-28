@@ -126,7 +126,10 @@ class QuickCaptureActivity : Activity() {
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 20 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startRecording()
+        if (requestCode == 20 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            // Permission callbacks can arrive before onResume. Start only once visible.
+            if (active) startRecording() else resumeAfterLogin = true
+        }
         else { base("Нужен доступ к микрофону", "Разрешите запись звука в настройках приложения."); button("Настройки") { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }; button("Начать запись", false) { startRecording() } }
     }
     private fun stopRecording() {
