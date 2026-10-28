@@ -27,6 +27,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -48,6 +51,8 @@ class QuickCaptureActivity : Activity() {
     private var active = false
     private var resumeAfterLogin = false
     private var initialCheck = false
+    private var newRecordingRequested = true
+    private var newRecordingQueued = false
     private val choices = mutableListOf<Pair<JSONObject, CheckBox>>()
     private val timer = object : Runnable {
         override fun run() {
@@ -80,7 +85,8 @@ class QuickCaptureActivity : Activity() {
         }
         setContentView(overlay); applySystemInsets(overlay)
         if (Build.VERSION.SDK_INT >= 33) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) { finish() }
-        draft = VoiceDraft.load(this)
+        draft = savedInstanceState?.getString("capture_draft_id")?.let { VoiceDraft.load(this, it) }
+        newRecordingRequested = savedInstanceState?.getBoolean("new_recording_requested", draft == null) ?: true
         base("Голосовое сообщение", "Проверяю вход…")
         if (ValueAnimator.areAnimatorsEnabled()) {
             sheet.alpha = 0f; scrim.alpha = 0f
@@ -94,7 +100,7 @@ class QuickCaptureActivity : Activity() {
     }
     override fun onResume() {
         super.onResume(); active = true
-        if (!initialCheck || resumeAfterLogin) { initialCheck = true; resumeAfterLogin = false; authorize() }
+        if (!initialCheck || resumeAfterLogin || newRecordingRequested) { initialCheck = true; resumeAfterLogin = false; authorize() }
     }
     override fun onPause() {
         active = false
@@ -102,7 +108,17 @@ class QuickCaptureActivity : Activity() {
         super.onPause()
     }
     override fun onDestroy() { microphone?.setRecording(false); main.removeCallbacksAndMessages(null); recorder?.release(); recorder = null; io.shutdown(); super.onDestroy() }
-    override fun onNewIntent(intent: Intent?) { super.onNewIntent(intent); setIntent(intent) }
+    override fun onSaveInstanceState(outState: Bundle) {
+        draft?.let { outState.putString("capture_draft_id", it.id) }
+        outState.putBoolean("new_recording_requested", newRecordingRequested)
+        super.onSaveInstanceState(outState)
+    }
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent); setIntent(intent)
+        if (recorder != null || closing) return
+        newRecordingRequested = true
+        if (busy) newRecordingQueued = true else if (active) authorize()
+    }
     override fun finish() {
         if (closing) return
         closing = true
@@ -165,8 +181,31 @@ class QuickCaptureActivity : Activity() {
     private fun authorize() {
         work({ ApiClient.requireUnlocked() }) {
             if (!active) { resumeAfterLogin = true; return@work }
+            if (newRecordingRequested) { newRecordingRequested = false; draft = null; item = null }
             if (draft == null) startRecording() else restore()
         }
+    }
+    private fun startFreshCapture() {
+        stopRecording()
+        newRecordingRequested = true
+        if (busy) newRecordingQueued = true else authorize()
+    }
+    private fun showSavedDrafts() {
+        stopRecording()
+        val saved = VoiceDraft.all(this)
+        base("Сохранённые сообщения", if (saved.isEmpty()) "Здесь появятся записи, к которым вы захотите вернуться." else "Выберите запись, чтобы продолжить отправку или подтверждение.")
+        button("Новая запись") { startFreshCapture() }
+        val date = DateTimeFormatter.ofPattern("dd.MM · HH:mm").withZone(ZoneId.systemDefault())
+        for (entry in saved) {
+            val state = if (entry.applyBody != null) "проверить сохранение" else "%d:%02d".format(entry.seconds / 60, entry.seconds % 60)
+            button("${date.format(Instant.parse(entry.recordedAt))} · $state", false) {
+                draft = entry; item = null; newRecordingRequested = false; restore()
+            }
+        }
+    }
+    private fun savedDraftsButton() {
+        val count = VoiceDraft.all(this).count { it.id != draft?.id }
+        if (count > 0) button("Сохранённые · $count", false) { showSavedDrafts() }
     }
     @Suppress("DEPRECATION")
     private fun startRecording() {
@@ -190,6 +229,7 @@ class QuickCaptureActivity : Activity() {
             actions.addView(secondaryButton("Отмена").apply { setOnClickListener { if (!busy) discard() } }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(10) })
             actions.addView(primaryButton("Готово").apply { setOnClickListener { if (!busy) { stopRecording(); upload() } } }, LinearLayout.LayoutParams(0, dp(52), 1.5f))
             root.addView(actions); actions.margin(top = dp(14))
+            savedDraftsButton()
             main.post(timer)
         } catch (_: Exception) {
             recording.release(); recorder = null; next.clear(this); draft = null
@@ -222,6 +262,7 @@ class QuickCaptureActivity : Activity() {
         }
         base("Голосовое сообщение", message)
         button(if (current.applyBody != null) "Проверить сохранение" else "Отправить на разбор") { if (current.applyBody != null) restore() else upload() }
+        button("Новая запись", false) { startFreshCapture() }
         button("Удалить запись с телефона", false) { discard() }
         button("Закрыть", false) { finish() }
     }
@@ -235,6 +276,7 @@ class QuickCaptureActivity : Activity() {
                 base("Подтверждение не получено", "Запись сохранена. Можно безопасно повторить то же подтверждение.")
                 button("Повторить подтверждение") { sendApply(JSONObject(current.applyBody)) }
                 button("Обновить карточку", false) { draft = current.copy(applyBody = null); draft?.save(this); showItem(loaded) }
+                button("Новая запись", false) { startFreshCapture() }
             } else showItem(loaded)
         }
     }
@@ -250,11 +292,11 @@ class QuickCaptureActivity : Activity() {
             "applied" -> {
                 draft?.clear(this); draft = null
                 base("Готово", "Сообщение обработано. Подтверждённые действия сохранены в дашборде.")
-                button("Закрыть") { finish() }; button("Ещё сообщение", false) { startRecording() }; return
+                button("Закрыть") { finish() }; button("Ещё сообщение", false) { startFreshCapture() }; savedDraftsButton(); return
             }
             "processing" -> {
                 base("Сообщение обрабатывается", "Сервер ещё разбирает запись. Повторная отправка не создаст копию.")
-                button("Обновить") { restore() }; button("Закрыть", false) { finish() }; return
+                button("Обновить") { restore() }; button("Новая запись", false) { startFreshCapture() }; button("Закрыть", false) { finish() }; return
             }
             "captured", "error" -> {
                 pending(if (value.optString("error_code").startsWith("voice_")) "Запись сохранена, но распознавание не завершилось. Повторите отправку позже." else "Запись сохранена, но разбор не завершился. Можно повторить попытку.")
@@ -283,6 +325,7 @@ class QuickCaptureActivity : Activity() {
         }
         button(if (changes.length() > 0) "Сохранить выбранное" else "Оставить заметкой") { confirm() }
         button("Исправить в карточке", false) { openCard() }
+        button("Новая запись", false) { startFreshCapture() }
         root.addView(sectionTitle("Расшифровка").apply { margin(top = dp(24), bottom = dp(8)) })
         root.addView(label(transcript, 16f).apply { setTextIsSelectable(true) })
         button("Закрыть и вернуться позже", false) { finish() }
@@ -322,6 +365,12 @@ class QuickCaptureActivity : Activity() {
                     else {
                         pending("${error.message ?: "Нет связи с сервером."}\nЗапись остаётся на телефоне.")
                         if (draft == null) button("Повторить проверку входа", false) { authorize() }
+                    }
+                }
+                if (newRecordingQueued) {
+                    newRecordingQueued = false
+                    if (newRecordingRequested && recorder == null) {
+                        if (active) authorize() else resumeAfterLogin = true
                     }
                 }
             }
