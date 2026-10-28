@@ -56,3 +56,51 @@ test('mobile audio endpoint checks Google owner, PIN and origin before reading u
  assert.equal((await handler(request(true,'https://evil.invalid'))).status,403);assert.equal(captures,0);
  const result=await handler(request());assert.equal(result.status,200);assert.equal(captures,1);assert.deepEqual(await result.json(),{item:{id:ID}});
 });
+
+test('authenticated mobile endpoint accepts Android Instant nanoseconds before upload and inference',async()=>{
+ const {createMobileCapture}=await import(modulePath);
+ const {createNotesHandler}=await import('../../supabase/functions/cos-notes/handler.mjs');
+ const {withPinGate}=await import('../../supabase/functions/_shared/dashboard-pin.mjs');
+ const recorded='2026-10-28T18:00:00.123456789Z',calls=[];
+ const store={
+  list:async table=>table==='cos_calendar_connection'?[{google_sub:'owner'}]:[{google_sub:'owner',expires_at:'2027-01-01T00:00:00Z'}],
+  rpc:async(name,args)=>{
+   if(name==='cos_dashboard_pin_status')return {authenticated:true,unlocked:true,setupRequired:false};
+   assert.equal(name,'cos_inbox_capture_android');calls.push(['capture',args]);return {item:{id:ID,revision:1,status:'captured'}};
+  }
+ };
+ const voice={saveBytes:async(id,bytes)=>{calls.push(['save',id,bytes.length]);}};
+ const inbox={analyze:async(id,args)=>{calls.push(['analyze',id,args]);return {item:{id,status:'ready'}};}};
+ const now=()=>new Date(DATE),mobileCapture=createMobileCapture({store,voice,inbox,now});
+ const handler=withPinGate(createNotesHandler({store,mobileCapture,now}),{store});
+ const response=await handler(req({'X-Recorded-At':recorded,Origin:'https://nikodim.vercel.app',Cookie:'__Host-cos-calendar-session=synthetic-cookie-0123456789012345678901234567'}));
+ assert.equal(response.status,200,JSON.stringify(await response.json()));
+ assert.deepEqual(calls.map(c=>c[0]),['capture','save','analyze']);
+ assert.equal(calls[0][1].p_recorded_at,recorded);
+});
+
+test('capture preserves UTC timestamps with zero through nine fractional digits across retries',async()=>{
+ const {createMobileCapture}=await import(modulePath);
+ for(let digits=0;digits<=9;digits++){
+  const recorded='2026-10-28T18:00:00'+(digits?'.'+'123456789'.slice(0,digits):'')+'Z';
+  let status='captured',firstArgs,uploads=0,analyses=0,reads=0;
+  const store={rpc:async(name,args)=>{if(firstArgs)assert.deepEqual(args,firstArgs);else firstArgs=args;return {item:{id:ID,revision:1,status}};}};
+  const voice={saveBytes:async()=>{uploads++;}};
+  const inbox={analyze:async()=>{analyses++;return {item:{id:ID,status:'ready'}};},get:async()=>{reads++;return {item:{id:ID,status}};}};
+  const capture=createMobileCapture({store,voice,inbox,now:()=>new Date(DATE)});
+  assert.equal((await capture(req({'X-Recorded-At':recorded}))).item.status,'ready');
+  assert.equal(firstArgs.p_recorded_at,recorded);
+  for(status of ['ready','processing','applied','deferred'])assert.equal((await capture(req({'X-Recorded-At':recorded}))).item.status,status);
+  assert.deepEqual([uploads,analyses,reads],[1,1,4]);
+ }
+});
+
+test('timestamp compatibility retains format and future-time validation before persistence',async()=>{
+ const {createMobileCapture}=await import(modulePath);let captures=0;
+ const capture=createMobileCapture({now:()=>new Date(DATE),store:{rpc:async()=>{captures++;return {item:{id:ID,status:'ready'}};}},inbox:{get:async()=>({item:{id:ID}})}});
+ for(const recorded of ['', 'not-a-date','2026-10-28T18:00:00.Z','2026-10-28T18:00:00.1234567890Z','2026-10-28T18:00:00.123456789','2026-10-28T18:00:00.123456789+03:00','2026-13-28T18:00:00.123456789Z','2026-10-28T18:00:61.123456789Z','2026-10-28T18:05:00.001000000Z']){
+  await assert.rejects(capture(req({'X-Recorded-At':recorded})),e=>e.status===400&&e.safeCode==='invalid_mobile_audio',recorded);
+ }
+ assert.equal(captures,0);
+ await capture(req({'X-Recorded-At':'2026-10-28T18:05:00.000000000Z'}));assert.equal(captures,1);
+});

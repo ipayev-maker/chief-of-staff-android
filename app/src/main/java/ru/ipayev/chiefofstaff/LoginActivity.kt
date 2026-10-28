@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.text.InputFilter
 import android.text.InputType
 import android.util.Base64
-import android.view.WindowManager
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -25,7 +24,6 @@ class LoginActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(40), dp(24), dp(32)) }
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.WHITE); addView(root) })
         applySystemInsets(root)

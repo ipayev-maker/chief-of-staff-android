@@ -46,7 +46,9 @@ export function createMobileVoice({url,serviceKey,groqApiKey,fetchImpl=fetch}){
 export function createMobileCapture({store,inbox,voice,now=()=>new Date()}){
   return async request=>{
     const id=request.headers.get('X-Capture-ID'),duration=request.headers.get('X-Audio-Seconds'),recorded=request.headers.get('X-Recorded-At');
-    if(!UUID.test(id||'')||!/^\d{1,3}$/.test(duration||'')||+duration<1||+duration>600||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(recorded||'')||!Number.isFinite(Date.parse(recorded))||Date.parse(recorded)>+now()+300000)fail('invalid_mobile_audio',400);
+    // Android Instant.toString() can include nanoseconds. Keep the original
+    // timestamp for the RPC's immutable retry identity; parse only to validate.
+    if(!UUID.test(id||'')||!/^\d{1,3}$/.test(duration||'')||+duration<1||+duration>600||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/.test(recorded||'')||!Number.isFinite(Date.parse(recorded))||Date.parse(recorded)>+now()+300000)fail('invalid_mobile_audio',400);
     const bytes=await readMobileAudio(request),hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
     let saved;try{saved=await store.rpc('cos_inbox_capture_android',{p_id:id.toLowerCase(),p_audio_hash:hash,p_bytes:bytes.length,p_seconds:+duration,p_recorded_at:recorded});}catch(error){if(['PT400','PT409','PT410'].includes(error?.code))fail('mobile_capture_conflict',Number(error.code.slice(2)));throw error;}
     if(['ready','applied','deferred','processing'].includes(saved.item.status))return inbox.get(saved.item.id);
