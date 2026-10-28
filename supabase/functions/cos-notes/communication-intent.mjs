@@ -5,6 +5,10 @@ const tokens=value=>key(value).split(' ').filter(Boolean);
 function nameTokenMatches(name,mention){
   if(name===mention)return true;
   if(name.length<3||mention.length<3)return false;
+  // Adjectival surnames and project titles: Вяловая → Вяловой,
+  // Тверской → Тверским. Keep complete stems; never fuzzy-match typos.
+  if(/(?:ая|яя)$/u.test(name))return (name.endsWith('ая')?['ой','ую']:['ей','юю']).some(end=>mention===name.slice(0,-2)+end);
+  if(/(?:ый|ий|ой)$/u.test(name)&&['ого','его','ому','ему','ым','им','ом','ем'].some(end=>mention===name.slice(0,-2)+end))return true;
   if(/(?:ов|ев|ин|ын)$/u.test(name)&&mention===name+'ым')return true;
   if(!/[аяйь]$/u.test(name))return ['а','у','ом','е'].some(end=>mention===name+end);
   const stem=name.slice(0,-1),ends={а:['ы','е','у','ой'],я:['и','е','ю','ей'],й:['я','ю','ем','е'],ь:['я','ю','ем','е','и','ью']};
@@ -14,7 +18,35 @@ export function nameMatches(name,mention){
   const a=tokens(name),b=tokens(mention);
   return a.length>0&&a.length===b.length&&a.every((word,i)=>nameTokenMatches(word,b[i]));
 }
-export function participantFor(raw,context,evidence){
+function partialNameMatches(name,mention){
+  const full=tokens(name),part=tokens(mention);
+  return part.length>0&&part.length<=full.length&&full.some((_,i)=>i+part.length<=full.length&&nameMatches(full.slice(i,i+part.length).join(' '),mention));
+}
+function partialParticipantFor(raw,context,evidence){
+  const participants=context.participants;
+  const source=' '+key(evidence)+' ';
+  let mention=typeof raw.participant_mention==='string'?raw.participant_mention.trim():'';
+  const byId=participants.find(p=>p.id===raw.participant_id);
+  // An omitted mention can be recovered only from the selected person's name,
+  // as literal tokens in this action's evidence. Prefer the longest match.
+  if(!mention&&byId){
+    const words=tokens(evidence),size=tokens(byId.name).length;
+    outer:for(let length=size;length>=1;length--)for(let i=0;i<=words.length-length;i++){
+      const part=words.slice(i,i+length).join(' ');
+      if(partialNameMatches(byId.name,part)){mention=part;break outer;}
+    }
+  }
+  if(!mention||!source.includes(' '+key(mention)+' '))return {id:null,suggestion:null};
+  const matches=participants.filter(p=>partialNameMatches(p.name,mention));
+  if(matches.length===1)return {id:matches[0].id,suggestion:null};
+  // A model-supplied ID is not evidence that one of several Antons was meant.
+  if(matches.length)return {id:null,suggestion:{name:mention,mention,existing_ids:matches.map(p=>p.id)}};
+  const name=typeof raw.participant_name==='string'?raw.participant_name.trim():'';
+  if(!name||name.length>200||!nameMatches(name,mention))return {id:null,suggestion:null};
+  return {id:null,suggestion:{name,mention,existing_ids:[]}};
+}
+export function participantFor(raw,context,evidence,{allowPartial=false}={}){
+  if(allowPartial)return partialParticipantFor(raw,context,evidence);
   let mention=typeof raw.participant_mention==='string'?raw.participant_mention.trim():'';
   const byId=context.participants.find(p=>p.id===raw.participant_id);
   // Some model responses provide only a known ID. Ground its full inflected

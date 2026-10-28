@@ -4,10 +4,10 @@ import {createStore} from '../cos-google-calendar/store.mjs';
 import {createCommunicationInbox,createInboxModel} from '../cos-notes/communication-inbox.mjs';
 import {createVoiceAdapter} from './voice.mjs';
 const fail=()=>{throw Error('upstream_failed')};
-export function createTelegramRuntime({url,serviceKey,botToken,openRouterKey,fetchImpl=fetch,now=()=>new Date()}){
+export function createTelegramRuntime({url,serviceKey,botToken,openRouterKey,telegramModel,fetchImpl=fetch,now=()=>new Date()}){
   const store=createStore({url,serviceKey,fetchImpl});
   const voice=createVoiceAdapter({url,serviceKey,botToken,openRouterKey,fetchImpl});
-  const model=createInboxModel({openRouterKey,fetchImpl});
+  const model=createInboxModel({openRouterKey,telegramModel,fetchImpl});
   return {
     store,now,loadConfig:()=>store.rpc('cos_notes_get_config'),
     createInbox:config=>createCommunicationInbox({store,model,now,voice:{

@@ -103,7 +103,25 @@ export function createGmailHandler({store,google,config,now=()=>new Date(),mailF
       if(request.method==='GET'&&route==='callback')return await callback(request,url);
       if(['tick','health'].includes(route)&&request.method==='POST'){
         if(!config.cronSecret||!safeEqual(request.headers.get('Authorization')||'','Bearer '+config.cronSecret))return json({error:'unauthorized'},401);
-        if(route==='health')return health?json({analysis:await health()}):json({error:'not_found'},404);
+        if(route==='health'){
+          if(!health)return json({error:'not_found'},404);
+          // Authenticate before reading a body. Diagnostics never accept source
+          // text, credentials, a model override or a URL from the caller.
+          let options={};
+          try{
+            if(Number(request.headers.get('Content-Length')||0)>128)return json({error:'invalid_request'},400);
+            const reader=request.body?.getReader(),chunks=[];let size=0;
+            if(reader){for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>128){reader.cancel().catch(()=>{});return json({error:'invalid_request'},400);}chunks.push(value);}}
+            const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+            const body=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();
+            if(body){
+              if(!/^application\/json(?:\s*;|$)/i.test(request.headers.get('Content-Type')||''))return json({error:'invalid_request'},400);
+              options=JSON.parse(body);
+              if(!options||Array.isArray(options)||Object.keys(options).length!==1||options.probe!==true)return json({error:'invalid_request'},400);
+            }
+          }catch{return json({error:'invalid_request'},400);}
+          return json({analysis:await health(options)});
+        }
         return await locked(async()=>sync(await current()));
       }
       const connection=await current();
