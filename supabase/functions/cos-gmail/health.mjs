@@ -8,6 +8,8 @@ export async function modelHealth({key,fetchImpl=fetch}){
     const creditResponse=await fetchImpl('https://openrouter.ai/api/v1/credits',{headers:{Authorization:'Bearer '+key},redirect:'error',signal:AbortSignal.timeout(10000)});
     const creditData=creditResponse.ok?(await creditResponse.json()).data:null;
     const balance=Number.isFinite(creditData?.total_credits)&&Number.isFinite(creditData?.total_usage)?creditData.total_credits-creditData.total_usage:null;
-    return {configured:true,provider_status:200,balance,credits_status:creditResponse.status,...Object.fromEntries(['limit','limit_remaining','usage','usage_daily','usage_monthly','limit_reset','is_free_tier','expires_at'].filter(k=>data&&Object.hasOwn(data,k)).map(k=>[k,data[k]]))};
+    const freeQuota=data?.free_model_daily_requests;
+    const free_model_daily_requests=freeQuota?Object.fromEntries(['used','limit','remaining'].filter(k=>Number.isFinite(freeQuota[k])&&freeQuota[k]>=0).map(k=>[k,freeQuota[k]])):null;
+    return {configured:true,provider_status:200,free_model_daily_requests,balance,credits_status:creditResponse.status,...Object.fromEntries(['limit','limit_remaining','usage','usage_daily','usage_monthly','limit_reset','is_free_tier','expires_at'].filter(k=>data&&Object.hasOwn(data,k)).map(k=>[k,data[k]]))};
   }catch{return {configured:true,provider_status:0};}
 }
