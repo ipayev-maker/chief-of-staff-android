@@ -7,6 +7,8 @@
     <application
         android:name=".NikodimApplication"
         android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false"
         android:icon="@drawable/ic_nikodim_mic"
         android:label="Chief of Staff"
