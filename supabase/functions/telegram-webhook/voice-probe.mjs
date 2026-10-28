@@ -15,8 +15,11 @@ export async function probeVoice({groqApiKey,openRouterKey,transcriptionProvider
       return fetchImpl(url,init);
     }});
     const text=await adapter.transcribe({ownerId:1,communicationId:ID});
-    const checks={meeting:/встреча/iu.test(text),person:/антон/iu.test(text),day:/завтра/iu.test(text),time:/двенадцать|12/u.test(text)};
-    return {status:Object.values(checks).every(Boolean)?'passed':'failed',model,duration_ms:Date.now()-started,checks};
+    const checks={meeting:/встреча/iu.test(text),person:/антон/iu.test(text),day:/завтра/iu.test(text),time:/двенадцать|12/iu.test(text)};
+    // This is the fixed synthetic fixture, never owner speech. Keep its bounded
+    // recognition available to diagnose failed word checks; redact credentials.
+    let recognized=text;for(const secret of [groqApiKey,openRouterKey])if(secret)recognized=recognized.replaceAll(secret,'[redacted]');
+    return {status:Object.values(checks).every(Boolean)?'passed':'failed',model,duration_ms:Date.now()-started,checks,recognized_text:recognized.slice(0,500)};
   }catch(error){
     // Never echo provider bodies, exception messages, audio or credentials.
     const code=error?.safeCode;

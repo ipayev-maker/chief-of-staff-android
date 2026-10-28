@@ -27,4 +27,6 @@ test('voice probe distinguishes API errors and incorrect speech without exposing
  }
  const result=await probeVoice({groqApiKey:'g',fetchImpl:async()=>Response.json({text:'Погода хорошая.'})});
  assert.equal(result.status,'failed');assert.ok(Object.values(result.checks).every(value=>value===false));
+ const safe=await probeVoice({groqApiKey:'synthetic-private-key',fetchImpl:async()=>Response.json({text:'synthetic-private-key '+ 'x'.repeat(1000)})});
+ assert.doesNotMatch(safe.recognized_text,/synthetic-private-key/);assert.ok(safe.recognized_text.length<=500);
 });
