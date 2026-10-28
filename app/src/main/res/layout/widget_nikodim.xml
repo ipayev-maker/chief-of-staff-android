@@ -4,13 +4,14 @@
     android:layout_height="match_parent">
     <ImageView
         android:id="@+id/widget_root"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:layout_gravity="center"
         android:layout_margin="2dp"
         android:background="@drawable/widget_bg"
         android:contentDescription="@string/shortcut_voice"
         android:padding="12dp"
         android:scaleType="centerInside"
-        android:src="@drawable/ic_widget_mic" />
+        android:src="@drawable/ic_widget_mic"
+        android:tint="#1C1C1A" />
 </FrameLayout>

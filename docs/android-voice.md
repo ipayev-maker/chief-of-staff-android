@@ -1,8 +1,8 @@
-# Android 0.4.4: raw voice and owner access
+# Android 0.4.5: raw voice and owner access
 
 The Android app records mono AAC in an M4A container (16 kHz, 32 kbps), up to ten minutes / 3 MiB. It does not use Android speech recognition. The owner explicitly stops and sends the recording. Backgrounding the activity stops recording and retains the private local draft.
 
-The compact widget occupies one launcher cell. A stretched widget shows a caption; both launch the same bottom capture sheet in a separate task affinity, so opening the widget does not bring the dashboard activity in front of the launcher. The translucent sheet slides up over the current screen and slides down on close. Its microphone gently pulses only while recording and respects disabled system animations. Closing with the cross, outside tap or Back stops recording and retains the private draft. Existing launcher shortcuts continue to work.
+The lavender microphone widget occupies one launcher cell; a stretched widget becomes a pill labelled **Записать**. Both launch the same capture surface in a separate task affinity, so opening the widget does not bring the dashboard activity in front of the launcher. Recording uses the owner's chosen Wispr Flow composition: lavender cancel circle, lavender waveform capsule and cream confirmation circle over the current screen. A small timer sits above; a saved-recordings icon appears when earlier drafts exist. The waveform uses actual `MediaRecorder.maxAmplitude` samples, with quiet dots for silence and a soft recording pulse. It respects disabled system animations and stops when recording stops. Outside tap or Back retains the private draft; the recording cross asks before deletion. The surface slides up on entry and down on close. Existing launcher shortcuts continue to work.
 
 If the owner session or PIN has expired, the sheet shows a **Разблокировать** action; it does not automatically navigate to the full login screen. The same owner and PIN checks still gate recording and upload.
 
@@ -30,7 +30,7 @@ The app retains the local recording until successful confirmation or explicit re
 
 1. Apply `20261028195156_android_voice_and_login.sql`.
 2. Deploy `cos-google-calendar` and `cos-notes` with their existing custom owner/PIN guards (`verify_jwt=false`).
-3. Build, test and lint Android 0.4.4 (versionCode 8); sign the release APK with the same privately retained release key as 0.4.0 so it installs as an update.
+3. Build, test and lint Android 0.4.5 (versionCode 9); sign the release APK with the same privately retained release key as 0.4.0 so it installs as an update.
 4. Install and sign in on the owner's phone. Device login, microphone routing and launcher rendering need a real-device check; automated tests do not establish those outcomes.
 
 Contract coverage includes owner/PIN/origin denial, bounded audio, immutable retry sequencing, Groq-only transcription, free-model routing, meeting confirmation and single-use verifier-bound login. Android CI builds debug and unsigned release APKs and runs lint. Release signing material must never be committed or included in public CI artifacts.
