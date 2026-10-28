@@ -13,11 +13,32 @@ const dayString=(year,month,day)=>`${year}-${String(month).padStart(2,'0')}-${St
 function baseDay(refDate,timeZone){return new Intl.DateTimeFormat('sv-SE',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(refDate));}
 function clean(value){return value.trim().toLowerCase().replaceAll('ё','е').replace(/[.,!?:;]+$/,'').replace(/^(?:(?:до|к|на|в|во)\s+)+/,'').trim();}
 export function hasDateHint(text){return /\d{1,4}[./-]\d{1,2}|\d{1,2}\s+(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/iu.test(text)||word('сегодня|завтра|послезавтра|вчера|позавчера|понедельник\\p{L}*|вторник\\p{L}*|сред[ау]|четверг\\p{L}*|пятниц\\p{L}*|суббот\\p{L}*|воскресень\\p{L}*|недел\\p{L}*|месяц\\p{L}*|срок\\p{L}*|через|назад',text);}
-function uncertain(text){return word('или|либо|примерно|ориентировочно|возможно|наверное|предположительно|между|раньше|позже|пока|когда-нибудь',text)||/\d\s*[-–—]\s*\d/u.test(text.replace(/\d{4}-\d{2}-\d{2}/g,''))||/(?:^|\s)с\s+.+\s+по\s+/iu.test(text);}
+// A person and project ("с Антоном по Интершарму") are not a date range.
+// Require temporal-looking endpoints, including abbreviated "с 3 по 5 ноября".
+const rangeBoundary='(?:\\d{1,4}(?![\\p{L}\\d])|(?:(?:эт[а-яё]*|следующ[а-яё]*|прошл[а-яё]*)\\s+)?(?:сегодня|завтра|послезавтра|вчера|позавчера|понедельник[а-яё]*|вторник[а-яё]*|сред[ауы]|четверг[а-яё]*|пятниц[а-яё]*|суббот[а-яё]*|воскресень[а-яё]*|утр[а-яё]*|вечер[а-яё]*|ноч[а-яё]*|начал[а-яё]*|кон[еца][а-яё]*)(?!\\p{L}))';
+const dateRange=new RegExp('(?:^|\\s)с\\s+'+rangeBoundary+'.*?\\s+(?:по|до)\\s+'+rangeBoundary,'iu');
+function uncertain(text){return word('или|либо|примерно|ориентировочно|возможно|наверное|предположительно|между|раньше|позже|пока|когда-нибудь',text)||/\d\s*[-–—]\s*\d/u.test(text.replace(/\d{4}-\d{2}-\d{2}/g,''))||dateRange.test(text);}
+// Explicit same-day clock intervals carry a start and duration, not two dates.
+// Keep the literal span so callers can mask it without altering quote offsets.
+export function clockRangeEvidence(source){
+  if(typeof source!=='string')return [];
+  const pattern=/(?<![\p{L}\d])с\s+(\d{1,2})(?:[:.](\d{2}))?(?:\s+час(?:а|ов)?)?\s+до\s+(\d{1,2})(?:[:.](\d{2}))?(?:\s+час(?:а|ов)?)?(?![\p{L}\d:/-]|\.\d)/giu;
+  return [...source.matchAll(pattern)].map(m=>{
+    const start=Number(m[1])*60+Number(m[2]||0),end=Number(m[3])*60+Number(m[4]||0);
+    const unit=/^\s*(?:sku|скю|детал\p{L}*|штук\p{L}*|шт\.?|позиц\p{L}*|мм|см|кг|руб\p{L}*|дн(?:я|ей)|день|недел\p{L}*|месяц\p{L}*|процент\p{L}*|%|января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?=$|[^\p{L}])/iu.test(source.slice(m.index+m[0].length));
+    const valid=!unit&&Number(m[1])<24&&Number(m[3])<24&&Number(m[2]||0)<60&&Number(m[4]||0)<60&&end>start;
+    return {text:m[0],index:m.index,time:valid?m[1].padStart(2,'0')+':'+(m[2]||'00'):null,duration_minutes:valid?end-start:null};
+  });
+}
+function withoutClockRanges(source){
+  const chars=source.split('');
+  for(const range of clockRangeEvidence(source))if(range.time)for(let i=range.index;i<range.index+range.text.length;i++)chars[i]=' ';
+  return chars.join('');
+}
 // A date-bearing clause with a negation needs clarification. "Не забудь" is
 // an instruction, not a negated deadline; keep that common idiom usable.
 function countDateMentions(text){return [...text.matchAll(/\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{4})?|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|(?<!\p{L})(?:сегодня|послезавтра|завтра|позавчера|вчера|понедельник\p{L}*|вторник\p{L}*|сред[ауы]|четверг\p{L}*|пятниц\p{L}*|суббот\p{L}*|воскресень\p{L}*)(?!\p{L})/giu)].length;}
-function sourceUncertain(source){const text=source.replace(/(?:^|\s)не\s+(?:забудь|забыть|забывайте|забывай)\s+/giu,' ');return uncertain(text)||countDateMentions(withoutClocks(text))>1||word('не',text);}
+function sourceUncertain(source){const text=source.replace(/(?:^|\s)не\s+(?:забудь|забыть|забывайте|забывай)\s+/giu,' '),calendar=withoutClockRanges(text);return uncertain(calendar)||countDateMentions(withoutClocks(calendar))>1||word('не',text);}
 export function dateEvidence(row,text){
   const source=typeof row?.source_text==='string'?row.source_text.trim():'';
   const date=typeof row?.date_text==='string'?row.date_text.trim():'';

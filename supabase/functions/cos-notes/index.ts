@@ -24,7 +24,7 @@ Deno.serve(async (request: Request) => {
         return voiceAdapter[method]({...args, ownerId: config.telegramOwnerUserId});
       };
       const inbox = createCommunicationInbox({store,
-        model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY')}),
+        model: createInboxModel({openRouterKey: Deno.env.get('OPENROUTER_KEY'),telegramModel:Deno.env.get('TELEGRAM_OPENROUTER_MODEL'),mailModel:Deno.env.get('GMAIL_OPENROUTER_MODEL')}),
         voice: {model: voiceAdapter.model, save: (args: object) => ownerVoice('save', args), transcribe: (args: object) => ownerVoice('transcribe', args), read: (args: object) => ownerVoice('read', args)},
       });
       handler = withPinGate(createNotesHandler({store, inbox,media:createNoteMedia({store,url:Deno.env.get('SUPABASE_URL'),serviceKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')})}),{store});

@@ -42,3 +42,11 @@ test('source quote validation catches omitted dates, intervals and altered negat
   assert.deepEqual(evidence('Образец 25–27 сентября','27 сентября'),{warning:true});
   assert.deepEqual(dateEvidence({source_text:'Чертежи завтра',date_text:'завтра',date_status:'explicit'},'Чертежи без срока'),{warning:true});
 });
+test('person plus project is not a date interval; actual date ranges stay ambiguous',async()=>{
+  const {dateEvidence}=await implementation;
+  const check=(source,date)=>dateEvidence({source_text:source,date_text:date,date_status:'explicit'},source);
+  for(const source of ['Сегодня в 12 встреча с Антоном по Интершарму','Завтра обсудить с Антоном по проекту Факел']){
+    const date=source.split(' ')[0];assert.deepEqual(check(source,date),{quote:date,warning:false},source);
+  }
+  for(const [source,date]of [['Встреча с 3 по 5 ноября в 12','5 ноября'],['Встреча с 3 до 5 ноября в 12','5 ноября'],['Встреча с понедельника по пятницу в 12','пятницу'],['Встреча с 29.10 по 30.10 в 12','30.10'],['Завтра не встречаться с Антоном по Интершарму','Завтра']])assert.deepEqual(check(source,date),{warning:true},source);
+});
