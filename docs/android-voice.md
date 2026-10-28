@@ -6,6 +6,8 @@ The compact widget occupies one launcher cell. A stretched widget shows a captio
 
 If the owner session or PIN has expired, the sheet shows a **Разблокировать** action; it does not automatically navigate to the full login screen. The same owner and PIN checks still gate recording and upload.
 
+The Google callback returns to the app task that initiated login, whether the dashboard or widget capture. That task ID is retained with the encrypted, expiring PKCE verifier and is never accepted from a deep link. If the original task is gone, the standard login screen still validates the one-use code and verifier.
+
 ## Authentication
 
 The app uses the existing Google owner allowlist and four-digit dashboard PIN. It opens the registered Google callback domain with a SHA-256 verifier challenge, consumes an opaque, single-use two-minute transfer code, then asks for the PIN. Tokens never enter deep links. The native verifier and session cookies are encrypted with Android Keystore; backups and cleartext networking are disabled. The app contains neither a Supabase key nor an AI provider key. Screenshots are allowed on all app screens at the owner's request.

@@ -56,7 +56,7 @@ class LoginActivity : Activity() {
                     val bytes = ByteArray(48).also { SecureRandom().nextBytes(it) }
                     val verifier = Base64.encodeToString(bytes, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
                     val challenge = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
-                    SecureSession.begin(verifier)
+                    SecureSession.begin(verifier, taskId)
                     val url = Uri.parse("https://chief-of-staff-v3-live.vercel.app/api/google-calendar/bridge-start").buildUpon()
                         .appendQueryParameter("challenge", challenge).appendQueryParameter("time_zone", "Europe/Moscow").appendQueryParameter("return_to", "/android").build()
                     startActivity(Intent(Intent.ACTION_VIEW, url))
